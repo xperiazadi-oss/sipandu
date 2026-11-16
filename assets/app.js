@@ -26,18 +26,20 @@ var App = (function () {
 
   /* ---------- menu ---------- */
   var MENU = {
-    binaan: [['beranda'], ['risiko'], ['#pmi'], ['qc', 1], ['dokkm', 1, 2], ['pme', 0, 3], ['sa', 0, 3], ['pustaka', 0, 3], ['#lainnya'], ['kop'], ['arsip', 0, 2], ['notif']],
-    pembina: [['beranda'], ['#pembinaan'], ['pantau', 1], ['kasus', 1], ['tinjau', 1, 2], ['lpm', 1, 2], ['ub', 0, 3], ['up', 0, 3], ['kl', 0, 3], ['#pengesahan'], ['ttd', 0, 2], ['kop'], ['arsip', 0, 2], ['notif']],
-    admin: [['beranda'], ['#akses'], ['pengguna', 1], ['#referensi'], ['ref-pkm', 1], ['ref-param', 1], ['ref-alat', 1], ['aturan', 1], ['pustaka-kelola', 1, 3], ['#operasional'], ['tampilan', 1], ['operasional', 1], ['arsip', 0, 2]]
+    binaan: [['beranda'], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['risiko'], ['#pmi'], ['qc', 1], ['dokkm', 1, 2], ['pme', 0, 3], ['sa', 0, 3], ['pustaka', 0, 3], ['#lainnya'], ['kop'], ['arsip', 0, 2], ['notif']],
+    pembina: [['beranda'], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['#pembinaan'], ['pantau', 1], ['kasus', 1], ['tinjau', 1, 2], ['lpm', 1, 2], ['ub', 0, 3], ['up', 0, 3], ['kl', 0, 3], ['#pengesahan'], ['ttd', 0, 2], ['kop'], ['arsip', 0, 2], ['notif']],
+    admin: [['beranda'], ['#akses'], ['pengguna', 1], ['#referensi'], ['ref-pkm', 1], ['ref-param', 1], ['ref-alat', 1], ['aturan', 1], ['pustaka-kelola', 1, 3], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['#operasional'], ['tampilan', 1], ['operasional', 1], ['arsip', 0, 2]]
   };
   function tampil() { return Object.assign({ appName: t('app.nama'), longName: t('app.kepanjangan'), tagline: t('app.slogan'), color: '#0d5c63' }, C.settings().tampilan || {}); }
 
+  var SETUP_OPEN = ['sd', 'risiko', 'kop'];
+  function locked(head) { return !C.setupDone() && SETUP_OPEN.indexOf(head) < 0; }
   function layout(body, cur) {
     var u = C.me(), st = tampil();
     var nav = MENU[u.role].map(function (m) {
       if (m[0].charAt(0) === '#') return '<div class="grp">' + esc(t('menu.grup.' + m[0].slice(1))) + '</div>';
-      var on = cur === m[0] || cur.indexOf(m[0] + '-') === 0;
-      return '<a href="#' + m[0] + '" class="' + (on ? 'on ' : '') + (m[1] ? 'sub' : '') + '">' + esc(t('menu.' + m[0].replace('-', '_'))) + (m[2] ? ' <span class="tahap">' + esc(t('umum.tahap_n', { n: m[2] })) + '</span>' : '') + '</a>';
+      var on = cur === m[0] || cur.indexOf(m[0] + '-') === 0, lk = locked(m[0].split('-')[0]);
+      return '<a href="#' + m[0] + '" class="' + (on ? 'on ' : '') + (m[1] ? 'sub ' : '') + (lk ? 'lock' : '') + '"' + (lk ? ' title="' + esc(t('sd.terkunci')) + '"' : '') + '>' + (lk ? '🔒 ' : '') + esc(t('menu.' + m[0].replace('-', '_'))) + (m[2] ? ' <span class="tahap">' + esc(t('umum.tahap_n', { n: m[2] })) + '</span>' : '') + '</a>';
     }).join('');
     var unread = (C.S.notifs || []).filter(function (n) { return !n.read; }).length;
     return '<div class="app"><aside class="side"><div class="brand"><b>' + esc(st.appName) + '</b><small>' + esc(st.tagline) + '</small></div><nav class="nav">' + nav + '</nav></aside>' +
@@ -63,7 +65,9 @@ var App = (function () {
       pembina: { beranda: homePembina, pantau: pantau, pkm: function () { return pkmDetail(arg); }, lembar: function () { return worksheet(arg); }, kasus: function () { return arg ? casePage(arg) : caseList(); }, risiko: function () { return riskForm(arg); }, kop: kopPage, notif: notifPage, tinjau: function () { return stage(2); }, lpm: function () { return stage(2); }, ttd: function () { return stage(2); }, arsip: function () { return stage(2); }, ub: function () { return stage(3); }, up: function () { return stage(3); }, kl: function () { return stage(3); } },
       admin: { beranda: homeAdmin, pengguna: pengguna, ref: function () { return arg === 'pkm' ? refPkm() : arg === 'param' ? refParam() : refAlat(); }, aturan: aturan, tampilan: tampilanPage, operasional: operasional, pustaka: function () { return stage(3); }, arsip: function () { return stage(2); } }
     }[u.role];
+    allowed.sd = function () { return sdPage(arg); };
     if (!allowed[head]) return denied();
+    if (locked(head)) return setupCard();
     return allowed[head]();
   }
   function denied() { return '<div class="note bad">' + esc(t('galat.halaman_tidak_tersedia')) + '</div>'; }
@@ -120,8 +124,13 @@ var App = (function () {
   function qcList() {
     var u = C.me(), all = C.S.sheets;
     var act = all.filter(function (s) { return s.status === 'aktif'; }), closed = all.filter(function (s) { return s.status !== 'aktif'; });
-    var alats = C.S.alats.filter(function (a) { return a.active; });
+    var alAct = C.S.alats.filter(function (a) { return a.active && String(a.pkmId) === String(u.pkmId) && a.cat !== 'Lainnya'; });
+    var alats = alAct.filter(function (a) { return C.latestRisk(u.pkmId, 'alat', a.id); }), noRisk = alAct.filter(function (a) { return !C.latestRisk(u.pkmId, 'alat', a.id); });
+    var miss = [];
+    ['Kimia', 'Hematologi'].forEach(function (cat) { ['kontrol', 'reagen'].forEach(function (j) { if (!(C.S.bhp || []).some(function (b) { return b.jenis === j && b.cat === cat && b.status === 'tersedia'; })) miss.push(t('sd.jenis_opsi.' + j) + ' ' + cat); }); });
     var h = '<h2>' + esc(t('qc.judul')) + '</h2><p class="muted">' + esc(t('qc.pengantar')) + '</p>';
+    if (noRisk.length) h += '<div class="note">' + esc(t('qc.alat_belum_dinilai', { daftar: noRisk.map(function (a) { return a.name; }).join(', ') })) + ' <a href="#risiko">' + esc(t('menu.risiko')) + '</a></div>';
+    if (miss.length) h += '<div class="note">' + esc(t('qc.bhp_kurang', { daftar: miss.join(', ') })) + ' <a href="#sd-bhp">' + esc(t('menu.sd_bhp')) + '</a></div>';
     h += '<div class="card"><h3>' + esc(t('qc.lembar_aktif')) + '</h3>' + sheetTable(act) + '</div>';
     h += '<div class="card"><h3>' + esc(t('qc.buat_baru')) + '</h3>' + (alats.length ? '<div class="form">' +
       '<label class="f">' + esc(t('qc.parameter')) + '<select id="nsParam">' + C.S.params.map(function (p) { return opt(p.id, p.name + ' (' + p.cat + ')'); }).join('') + '</select></label>' +
@@ -173,15 +182,25 @@ var App = (function () {
     if (ni.length) h += '<div class="note"><b>' + esc(t('lembar.tidak_ideal_judul')) + '</b><ul style="margin:4px 0 0 18px;padding:0">' + ni.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
     if (ed) h += '<div class="row" style="margin:10px 0"><button class="btn o s" data-act="reagenLot" data-id="' + sh.id + '">' + esc(t('lembar.tombol_lot_reagen')) + '</button><button class="btn o s" data-act="newLot" data-id="' + sh.id + '">' + esc(t('lembar.tombol_lot_kontrol')) + '</button></div>';
 
-    h += '<div class="card"><h3>' + esc(t('lembar.bahan_kontrol')) + '</h3><p class="small muted">' + esc(t('lembar.petunjuk_sel')) + (locked ? ' ' + esc(t('lembar.level_terkunci')) : '') + '</p><div class="tbl"><table><tr><th>' + esc(t('lembar.kol_aktif')) + '</th><th>' + esc(t('lembar.kol_level_nama')) + '</th><th>' + esc(t('lembar.kol_nama_kontrol')) + '</th><th>' + esc(t('lembar.kol_no_lot')) + '</th><th>' + esc(t('lembar.kol_ed_pabrik')) + '</th><th>' + esc(t('lembar.kol_ed_buka')) + '</th><th class="num">Mean</th><th class="num">SD</th><th class="num">-3SD</th><th class="num">-2SD</th><th class="num">-1SD</th><th class="num">+1SD</th><th class="num">+2SD</th><th class="num">+3SD</th></tr>';
+    var bhpOpts = function (jenis, curId) { return (C.S.bhp || []).filter(function (b) { return b.jenis === jenis && b.cat === sh.cat && String(b.pkmId) === String(sh.pkmId) && (b.status === 'tersedia' || String(b.id) === String(curId)); }); };
+    var bhpLabel = function (b) { return b.name + (b.level ? ' · ' + b.level : '') + ' · LOT ' + b.lot + (b.ed ? ' · ED ' + b.ed : ''); };
+    var kOpts = bhpOpts('kontrol');
+    h += '<div class="card"><h3>' + esc(t('lembar.bahan_kontrol')) + '</h3><p class="small muted">' + esc(t('lembar.petunjuk_sel')) + ' ' + esc(t('lembar.petunjuk_bhp')) + (locked ? ' ' + esc(t('lembar.level_terkunci')) : '') + '</p><div class="tbl"><table><tr><th>' + esc(t('lembar.kol_aktif')) + '</th><th>' + esc(t('lembar.kol_level_nama')) + '</th><th>' + esc(t('lembar.kol_nama_kontrol')) + '</th><th>' + esc(t('lembar.kol_no_lot')) + '</th><th>' + esc(t('lembar.kol_ed_pabrik')) + '</th><th>' + esc(t('lembar.kol_ed_buka')) + '</th><th class="num">Mean</th><th class="num">SD</th><th class="num">-3SD</th><th class="num">-2SD</th><th class="num">-1SD</th><th class="num">+1SD</th><th class="num">+2SD</th><th class="num">+3SD</th></tr>';
     sh.levels.forEach(function (l, i) {
       var lim = E.limits(l), on = l.active !== false;
       var inp = function (k, type) { return '<td class="in"><input class="cell" ' + (ed && on ? '' : 'disabled ') + 'type="' + (type || 'text') + '" data-lv="' + i + '" data-k="' + k + '" value="' + esc(l[k] == null ? '' : l[k]) + '"></td>'; };
-      h += '<tr' + (on ? '' : ' style="opacity:.5"') + '><td><input type="checkbox" data-act="lvActive" data-i="' + i + '" ' + (on ? 'checked ' : '') + (ed && !locked ? '' : 'disabled') + '></td><td>' + esc(l.name) + '</td>' + inp('control') + inp('lot') + inp('edPabrik', 'date') + inp('edBuka', 'date') + inp('mean') + inp('sd') +
+      var ctl = ed && on ? '<td class="in"><select class="cell" style="min-width:240px" data-lvbhp="' + i + '">' + opt('', t('lembar.pilih'), !l.bhpId) + bhpOpts('kontrol', l.bhpId).map(function (b) { return opt(b.id, bhpLabel(b), String(b.id) === String(l.bhpId)); }).join('') + '</select></td>' : '<td>' + esc(l.control || '') + '</td>';
+      h += '<tr' + (on ? '' : ' style="opacity:.5"') + '><td><input type="checkbox" data-act="lvActive" data-i="' + i + '" ' + (on ? 'checked ' : '') + (ed && !locked ? '' : 'disabled') + '></td><td>' + esc(l.name) + '</td>' + ctl + '<td class="calc">' + esc(l.lot || '') + '</td><td class="calc">' + esc(l.edPabrik || '') + '</td>' + inp('edBuka', 'date') + inp('mean') + inp('sd') +
         ['m3', 'm2', 'm1', 'p1', 'p2', 'p3'].map(function (k) { return '<td class="calc num">' + (lim && on ? fmt(lim[k], 2) : '') + '</td>'; }).join('') + '</tr>';
     });
-    h += '</table></div><div class="form" style="margin-top:10px"><label class="f">' + esc(t('lembar.instrumen')) + '<input class="inp" disabled value="' + esc(C.alat(sh.alatId).name) + '"></label>' +
-      [['method', 'lembar.metode'], ['reagen', 'lembar.reagen'], ['reagenLot', 'lembar.lot_reagen'], ['unit', 'lembar.satuan']].map(function (x) { return '<label class="f">' + esc(t(x[1])) + '<input class="inp" data-meta="' + x[0] + '" ' + (ed ? '' : 'disabled') + ' value="' + esc(sh[x[0]] || '') + '"></label>'; }).join('') + '</div>';
+    h += '</table></div>';
+    var rOpts = bhpOpts('reagen', sh.reagenBhpId), canPickR = ed && (!locked || !sh.reagenLot);
+    if (ed && (!kOpts.length || !bhpOpts('reagen').length)) h += '<div class="note">' + (!kOpts.length ? esc(t('lembar.bhp_kosong_kontrol', { kat: sh.cat })) + ' ' : '') + (!bhpOpts('reagen').length ? esc(t('lembar.bhp_kosong_reagen', { kat: sh.cat })) + ' ' : '') + '<a href="#sd-bhp">' + esc(t('lembar.isi_di_sd')) + '</a></div>';
+    var meta = function (k, key) { return '<label class="f">' + esc(t(key)) + '<input class="inp" data-meta="' + k + '" ' + (ed ? '' : 'disabled') + ' value="' + esc(sh[k] || '') + '"></label>'; };
+    h += '<div class="form" style="margin-top:10px"><label class="f">' + esc(t('lembar.instrumen')) + '<input class="inp" disabled value="' + esc(C.alat(sh.alatId).name) + '"></label>' + meta('method', 'lembar.metode') +
+      (canPickR ? '<label class="f">' + esc(t('lembar.reagen')) + '<select class="inp" data-reagenpick="1">' + opt('', t('lembar.pilih'), !sh.reagenBhpId) + rOpts.map(function (b) { return opt(b.id, bhpLabel(b), String(b.id) === String(sh.reagenBhpId)); }).join('') + '</select></label>'
+        : '<label class="f">' + esc(t('lembar.reagen')) + '<input class="inp" disabled value="' + esc(sh.reagen || '') + '"></label>') +
+      '<label class="f">' + esc(t('lembar.lot_reagen')) + '<input class="inp" disabled value="' + esc(sh.reagenLot || '') + '"></label>' + meta('unit', 'lembar.satuan') + '</div>';
     if ((sh.reagenEvents || []).length) h += '<p class="small muted">' + esc(t('lembar.riwayat_lot_reagen')) + ' ' + esc(sh.reagenEvents.map(function (r) { return r.date + ' → ' + r.lot; }).join('; ')) + '</p>';
     h += '</div>';
 
@@ -296,11 +315,11 @@ var App = (function () {
   function riskHome(pkmId) {
     var alats = C.S.alats.filter(function (a) { return String(a.pkmId) === String(pkmId); });
     var sfx = C.me().role === 'pembina' ? '-p' + pkmId : '';
-    var h = (sfx ? '' : '<h2>' + esc(t('menu.risiko')) + '</h2>') + '<p class="muted">' + esc(t('risiko.pengantar')) + '</p>';
+    var h = (sfx ? '' : (C.setupDone() ? '' : setupCard(true)) + '<h2>' + esc(t('menu.risiko')) + '</h2>') + '<p class="muted">' + esc(t('risiko.pengantar')) + '</p>';
     h += '<div class="card"><h3>' + esc(aspectName('alat')) + ' <span class="muted small">' + esc(t('risiko.satu_per_alat')) + '</span></h3>' + (alats.length ? '<div class="tbl"><table><tr><th>' + esc(t('risiko.kol_alat')) + '</th><th>' + esc(t('lembar.kol_kategori')) + '</th><th>' + esc(t('risiko.kol_status_pakai')) + '</th><th>' + esc(t('risiko.kol_terakhir')) + '</th><th class="num">' + esc(t('risiko.kol_skor')) + '</th><th>' + esc(t('risiko.kol_tingkat')) + '</th><th></th></tr>' + alats.map(function (a) {
       var r = C.latestRisk(pkmId, 'alat', a.id), m = C.riskMax(r), l = rl(m);
       return '<tr><td>' + esc(a.name) + '<div class="small muted">' + esc(a.merk) + '</div></td><td>' + esc(a.cat) + '</td><td>' + (a.active ? chip(t('risiko.dipakai'), 'ok') : chip(t('risiko.tidak_dipakai'), 'muted')) + '</td><td>' + (r ? r.date : '–') + '</td><td class="num">' + (m || '–') + '</td><td>' + chip(l.t, l.c) + '</td><td>' + (a.active ? '<button class="btn s" data-act="nav" data-to="risiko-alat-' + a.id + sfx + '">' + esc(t(r ? 'risiko.lihat_nilai_ulang' : 'risiko.nilai')) + '</button>' : '<span class="small muted">' + esc(t('risiko.tidak_dinilai')) + '</span>') + '</td></tr>';
-    }).join('') + '</table></div>' : '<p class="muted">' + esc(t('risiko.belum_ada_alat')) + '</p>') + '</div>';
+    }).join('') + '</table></div>' : '<p class="muted">' + esc(t('risiko.belum_ada_alat')) + '</p>') + (sfx ? '' : '<p class="small"><a href="#sd-alat">' + esc(t('menu.sd_alat')) + '</a></p>') + '</div>';
     h += '<div class="grid g3">' + ['bahan', 'lingkungan', 'personel'].map(function (a) {
       var r = C.latestRisk(pkmId, a), m = C.riskMax(r), l = rl(m);
       return '<div class="card"><h3>' + esc(aspectName(a)) + '</h3><p>' + chip(l.t, l.c) + ' <span class="muted small">' + esc(t('risiko.skor_tertinggi', { s: m || '–', tgl: r ? r.date : t('risiko.belum_dinilai') })) + '</span></p><button class="btn s" data-act="nav" data-to="risiko-' + a + sfx + '">' + esc(t(r ? 'risiko.lihat_nilai_ulang' : 'risiko.nilai')) + '</button></div>';
@@ -343,10 +362,98 @@ var App = (function () {
   }
   function pkmDetail(id) {
     var p = C.pkm(id), shs = C.S.sheets.filter(function (s) { return String(s.pkmId) === String(id); });
-    var h = '<div class="small"><a href="#pantau">← ' + esc(t('pantau.judul')) + '</a></div><h2>' + esc(p.name) + '</h2>';
+    var h = '<div class="small"><a href="#pantau">← ' + esc(t('pantau.judul')) + '</a></div><div class="row"><h2 class="sp">' + esc(p.name) + '</h2><button class="btn o s" data-act="sdOpen" data-pkm="' + p.id + '">' + esc(t('menu.sd')) + '</button></div>';
     h += '<div class="card"><h3>' + esc(t('pantau.lembar_qc')) + '</h3>' + sheetTable(shs) + '</div>';
     h += '<div class="card"><h3>' + esc(t('pantau.kasus')) + '</h3>' + caseTable((C.S.cases || []).filter(function (c) { return String(c.pkmId) === String(id) && c.state !== 'Dibatalkan'; }).slice().reverse()) + '</div>';
     h += '<div class="card"><h3>' + esc(t('menu.risiko')) + '</h3>' + riskHome(id) + '</div>';
+    return h;
+  }
+
+  /* ---------- Alur wajib Binaan ---------- */
+  function setupCard(compact) {
+    var st = C.S.setup || {}, step = function (ok, txt, link, extra) { return '<li class="row" style="margin:6px 0">' + chip(t(ok ? 'sd.selesai' : 'sd.belum'), ok ? 'ok' : 'warn') + '<span class="sp">' + esc(txt) + (extra ? ' <span class="small muted">(' + esc(extra) + ')</span>' : '') + '</span>' + (link && !ok ? '<a class="btn s" href="#' + link + '">' + esc(t('sd.buka')) + '</a>' : '') + '</li>'; };
+    var miss = (st.riskMissing || []).map(aspectName).concat((st.alatRiskMissing || []).map(function (id) { return C.alat(id).name; }));
+    return '<div class="card"' + (compact ? '' : ' style="max-width:860px"') + '><h3>' + esc(t('sd.setup_judul')) + '</h3><p class="small muted">' + esc(t('sd.setup_ket')) + '</p><ol style="list-style:none;padding:0;margin:0">' +
+      step(true, t('sd.langkah_sandi')) +
+      step(st.sdm, t('sd.langkah_sdm'), 'sd-sdm', st.sdmNoFoto ? t('sd.kurang_foto', { n: st.sdmNoFoto }) : '') +
+      step(st.alat, t('sd.langkah_alat'), 'sd-alat') +
+      step(st.risk, t('sd.langkah_risiko'), 'risiko', miss.length && st.alat ? t('sd.kurang_risiko', { daftar: miss.join(', ') }) : '') + '</ol></div>';
+  }
+
+  /* ---------- Sumber Daya ---------- */
+  function sdOwner() { var u = C.me(); if (u.role === 'binaan') return String(u.pkmId); if (ui.sdOwner != null) return String(ui.sdOwner); return u.role === 'pembina' ? '0' : String((C.S.pkms[0] || { id: 0 }).id); }
+  function sdEditable(owner) { var u = C.me(); return (u.role === 'binaan' && String(u.pkmId) === String(owner)) || (u.role === 'pembina' && String(owner) === '0'); }
+  function sdHead(sub, owner) {
+    var u = C.me(), h = (u.role === 'binaan' && !C.setupDone() ? setupCard(true) : '') + '<h2>' + esc(t('menu.sd_' + sub)) + '</h2><p class="muted">' + esc(t('sd.' + sub + '_sub')) + '</p>';
+    if (u.role !== 'binaan') h += '<div class="row" style="margin-bottom:10px"><label class="f" style="max-width:360px">' + esc(t('sd.pemilik')) + '<select class="inp" data-sdowner="1">' + opt('0', t('sd.labkesmas'), owner === '0') + C.S.pkms.map(function (p) { return opt(p.id, p.name, String(p.id) === owner); }).join('') + '</select></label></div>';
+    if (!sdEditable(owner)) h += '<div class="note">' + esc(t('sd.hanya_lihat')) + '</div>';
+    return h;
+  }
+  function sdPage(arg) {
+    var p = (arg || 'sdm').split('-'), sub = p[0];
+    if (sub === 'sdm' && p[1]) return personelPage(p[1]);
+    if (sub === 'alat') return sdAlat();
+    if (sub === 'bhp') return sdBhp();
+    return sdSdm();
+  }
+  function fotoImg(fid, w) { return fid ? '<img src="foto.php?f=' + fid + '" alt="" style="width:' + w + 'px;height:' + Math.round(w * 4 / 3) + 'px;object-fit:contain;border:1px solid var(--line);background:#fff;display:block">' : '<div style="width:' + w + 'px;height:' + Math.round(w * 4 / 3) + 'px;border:1px dashed var(--line)"></div>'; }
+  function sdSdm() {
+    var owner = sdOwner(), ed = sdEditable(owner), list = (C.S.personel || []).filter(function (x) { return String(x.pkmId) === owner; });
+    var h = sdHead('sdm', owner) + '<p class="small muted">' + esc(t('sd.sdm_ket')) + '</p>';
+    if (ed) h += '<div class="card"><h3>' + esc(t('sd.personel_baru')) + '</h3><div class="form"><label class="f">' + esc(t('sd.nama')) + '<input class="inp" id="nsdN"></label><label class="f">' + esc(t('sd.jabatan')) + '<input class="inp" id="nsdJ" placeholder="' + esc(t('sd.ph_jabatan')) + '"></label><div><button class="btn" data-act="sdmAdd">' + esc(t('sd.tambah')) + '</button></div></div></div>';
+    if (!list.length) return h + '<p class="muted">' + esc(t('sd.belum_personel')) + '</p>';
+    return h + '<div class="tbl"><table><tr><th>' + esc(t('sd.foto')) + '</th><th>' + esc(t('sd.nama')) + '</th><th>' + esc(t('sd.jabatan')) + '</th><th>' + esc(t('sd.nip')) + '</th><th>' + esc(t('sd.pendidikan')) + '</th><th>' + esc(t('sd.str_no')) + '</th><th>' + esc(t('sd.status')) + '</th></tr>' + list.map(function (x) {
+      return '<tr><td>' + fotoImg(x.fotoId, 45) + '</td><td><a href="#sd-sdm-' + x.id + '"><b>' + esc(x.name) + '</b></a>' + (x.fotoId ? '' : ' ' + chip(t('sd.belum_foto'), x.active ? 'bad' : 'muted')) + '</td><td>' + esc(x.jabatan) + '</td><td>' + esc(x.nip) + '</td><td>' + esc(x.pendidikan) + '</td><td>' + esc(x.strNo) + (x.strBerlaku ? '<div class="small muted">' + esc(x.strBerlaku) + '</div>' : '') + '</td><td><label class="small"><input type="checkbox" data-act="sdmActive" data-id="' + x.id + '" ' + (x.active ? 'checked ' : '') + (ed ? '' : 'disabled') + '> ' + esc(t('sd.aktif')) + '</label></td></tr>';
+    }).join('') + '</table></div>';
+  }
+  function personelPage(id) {
+    var x = C.byId(C.S.personel, id); if (!x) return denied();
+    var ed = sdEditable(String(x.pkmId)), cur = x.fotos[0];
+    var fld = function (k, key, ph) { return '<label class="f">' + esc(t(key)) + '<input class="inp" data-sdm="' + x.id + '" data-k="' + k + '" value="' + esc(x[k]) + '"' + (ph ? ' placeholder="' + esc(t(ph)) + '"' : '') + (ed ? '' : ' disabled') + '></label>'; };
+    var h = '<div class="small"><a href="#sd-sdm">← ' + esc(t('sd.kembali_sdm')) + '</a> · ' + esc(C.ownerName(x.pkmId)) + '</div><div class="row"><h2 class="sp">' + esc(x.name) + '</h2>' + (x.active ? chip(t('sd.aktif'), 'ok') : chip(t('sd.nonaktif'), 'muted')) + '</div>';
+    h += '<div class="grid g2" style="grid-template-columns:220px 1fr;align-items:start"><div class="card">' + fotoImg(x.fotoId, 180) + (cur ? '<p class="small muted">' + esc(t('sd.foto_diunggah', { tgl: cur.at, oleh: cur.by })) + '</p>' : '<p>' + chip(t('sd.belum_foto'), 'bad') + '</p>') +
+      (ed ? '<label class="f" style="margin-top:8px">' + esc(t(cur ? 'sd.ganti_foto' : 'sd.unggah_foto')) + '<input type="file" id="sdmFoto" data-id="' + x.id + '" accept="image/jpeg,image/png"></label><p class="small muted">' + esc(t('sd.foto_ket')) + '</p>' : '') + '</div>';
+    h += '<div class="card"><div class="form">' + fld('name', 'sd.nama') + fld('nip', 'sd.nip') + fld('jabatan', 'sd.jabatan', 'sd.ph_jabatan') + fld('pendidikan', 'sd.pendidikan') + fld('strNo', 'sd.str_no') + fld('strBerlaku', 'sd.str_berlaku', 'sd.ph_str_berlaku') + fld('sipNo', 'sd.sip_no') + '</div></div></div>';
+    h += '<div class="card"><h3>' + esc(t('sd.pelatihan')) + '</h3>' + (x.pelatihan.length ? '<div class="tbl"><table><tr><th>' + esc(t('sd.pel_nama')) + '</th><th>' + esc(t('sd.pel_oleh')) + '</th><th>' + esc(t('sd.pel_tahun')) + '</th><th></th></tr>' + x.pelatihan.map(function (p, i) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.by) + '</td><td>' + esc(p.tahun) + '</td><td>' + (ed ? '<button class="btn o s" data-act="trainDel" data-id="' + x.id + '" data-i="' + i + '">' + esc(t('sd.hapus')) + '</button>' : '') + '</td></tr>'; }).join('') + '</table></div>' : '<p class="muted">' + esc(t('sd.belum_pelatihan')) + '</p>') +
+      (ed ? '<div class="form" style="margin-top:10px"><label class="f">' + esc(t('sd.pel_nama')) + '<input class="inp" id="trN"></label><label class="f">' + esc(t('sd.pel_oleh')) + '<input class="inp" id="trB"></label><label class="f">' + esc(t('sd.pel_tahun')) + '<input class="inp" id="trT" inputmode="numeric" maxlength="4"></label><div><button class="btn s" data-act="trainAdd" data-id="' + x.id + '">' + esc(t('sd.tambah')) + '</button></div></div>' : '') + '</div>';
+    if (x.fotos.length > 1) h += '<div class="card"><h3>' + esc(t('sd.riwayat_foto')) + '</h3><div class="row">' + x.fotos.slice(1).map(function (f) { return '<div>' + fotoImg(f.id, 60) + '<div class="small muted">' + esc(f.at.slice(0, 10)) + '</div></div>'; }).join('') + '</div></div>';
+    return h;
+  }
+  function alatTable(list, ed, showOwner) {
+    if (!list.length) return '<p class="muted">' + esc(t('sd.belum_alat')) + '</p>';
+    var cell = function (a, k, type, w) { return '<td' + (ed ? ' class="in"' : '') + '><input class="cell" style="min-width:' + (w || 110) + 'px" ' + (type ? 'type="' + type + '" ' : '') + 'data-alat="' + a.id + '" data-k="' + k + '" value="' + esc(a[k]) + '"' + (ed ? '' : ' disabled') + '></td>'; };
+    var sel = function (a, k, vals, key) { return '<td' + (ed ? ' class="in"' : '') + '><select class="cell" data-alat="' + a.id + '" data-k="' + k + '"' + (ed ? '' : ' disabled') + '>' + (a[k] ? '' : opt('', t('lembar.pilih'), true)) + vals.map(function (v) { return opt(v, t(key + '.' + v), a[k] === v); }).join('') + '</select></td>'; };
+    return '<div class="tbl"><table><tr>' + (showOwner ? '<th>' + esc(t('sd.pemilik')) + '</th>' : '') + '<th>' + esc(t('sd.nama_alat')) + '</th><th>' + esc(t('sd.merk')) + '</th><th>' + esc(t('sd.tipe')) + '</th><th>' + esc(t('sd.no_seri')) + '</th><th>' + esc(t('sd.kategori')) + '</th><th>' + esc(t('sd.prinsip')) + '</th><th>' + esc(t('sd.tahun')) + '</th><th>' + esc(t('sd.kondisi')) + '</th><th>' + esc(t('sd.kal_terakhir')) + '</th><th>' + esc(t('sd.kal_berikut')) + '</th><th>' + esc(t('sd.dipakai')) + '</th></tr>' + list.map(function (a) {
+      var noRisk = a.active && String(a.pkmId) !== '0' && !C.latestRisk(a.pkmId, 'alat', a.id) && C.me().role === 'binaan';
+      return '<tr>' + (showOwner ? '<td>' + esc(C.ownerName(a.pkmId)) + '</td>' : '') + cell(a, 'name', '', 180) + cell(a, 'merk') + cell(a, 'tipe') + cell(a, 'noSeri') + sel(a, 'cat', ['Kimia', 'Hematologi', 'Lainnya'], 'sd.kat') + cell(a, 'prinsip', '', 140) + cell(a, 'tahun', '', 60) + sel(a, 'kondisi', ['baik', 'perbaikan', 'rusak'], 'sd.kondisi_opsi') + cell(a, 'kalTerakhir', 'date') + cell(a, 'kalBerikut', 'date') +
+        '<td><label class="small"><input type="checkbox" data-act="alatActive" data-id="' + a.id + '" ' + (a.active ? 'checked ' : '') + (ed ? '' : 'disabled') + '> ' + esc(t('sd.dipakai')) + '</label>' + (noRisk ? '<div>' + chip(t('sd.risiko_alat_belum'), 'warn') + '</div>' : '') + '</td></tr>';
+    }).join('') + '</table></div>';
+  }
+  function sdAlat() {
+    var owner = sdOwner(), ed = sdEditable(owner), list = C.S.alats.filter(function (a) { return String(a.pkmId) === owner; });
+    var h = sdHead('alat', owner) + '<p class="small muted">' + esc(t('sd.alat_ket')) + '</p>';
+    if (ed) h += '<div class="card"><h3>' + esc(t('sd.alat_baru')) + '</h3><div class="form"><label class="f">' + esc(t('sd.nama_alat')) + '<input class="inp" id="naN"></label><label class="f">' + esc(t('sd.merk')) + '<input class="inp" id="naM"></label><label class="f">' + esc(t('sd.tipe')) + '<input class="inp" id="naT"></label><label class="f">' + esc(t('sd.kategori')) + '<select class="inp" id="naC">' + ['Kimia', 'Hematologi', 'Lainnya'].map(function (v) { return opt(v, t('sd.kat.' + v)); }).join('') + '</select></label><div><button class="btn" data-act="alatAdd">' + esc(t('sd.tambah')) + '</button></div></div></div>';
+    return h + alatTable(list, ed, false);
+  }
+  function sdBhp() {
+    var owner = sdOwner(), ed = sdEditable(owner), today = C.today();
+    var all = (C.S.bhp || []).filter(function (b) { return String(b.pkmId) === owner; });
+    var h = sdHead('bhp', owner) + '<p class="small muted">' + esc(t('sd.bhp_ket')) + '</p>';
+    if (ed) h += '<div class="card"><h3>' + esc(t('sd.bhp_baru')) + '</h3><div class="form"><label class="f">' + esc(t('sd.jenis')) + '<select class="inp" id="nbJ">' + opt('kontrol', t('sd.jenis_opsi.kontrol')) + opt('reagen', t('sd.jenis_opsi.reagen')) + '</select></label><label class="f">' + esc(t('sd.nama_produk')) + '<input class="inp" id="nbN"></label><label class="f">' + esc(t('sd.produsen')) + '<input class="inp" id="nbP"></label><label class="f">' + esc(t('sd.kategori')) + '<select class="inp" id="nbC">' + opt('Kimia', t('sd.kat.Kimia')) + opt('Hematologi', t('sd.kat.Hematologi')) + '</select></label><label class="f">' + esc(t('sd.level')) + '<input class="inp" id="nbL" placeholder="' + esc(t('sd.ph_level')) + '"></label><label class="f">' + esc(t('sd.kemasan')) + '<input class="inp" id="nbK"></label><label class="f">' + esc(t('sd.lot')) + '<input class="inp" id="nbLot"></label><label class="f">' + esc(t('sd.ed')) + '<input class="inp" type="date" id="nbE"></label><label class="f">' + esc(t('sd.suhu')) + '<input class="inp" id="nbS" placeholder="' + esc(t('sd.ph_suhu')) + '"></label><div><button class="btn" data-act="bhpAdd">' + esc(t('sd.tambah')) + '</button></div></div></div>';
+    h += '<label class="small row" style="margin:6px 0"><input type="checkbox" data-act="bhpHabis" ' + (ui.showHabis ? 'checked' : '') + '> ' + esc(t('sd.tampilkan_habis')) + '</label>';
+    ['kontrol', 'reagen'].forEach(function (j) {
+      var list = all.filter(function (b) { return b.jenis === j && (ui.showHabis || b.status !== 'habis'); });
+      h += '<div class="card"><h3>' + esc(t('sd.judul_jenis.' + j)) + '</h3>';
+      if (!list.length) { h += '<p class="muted">' + esc(t('sd.belum_bhp')) + '</p></div>'; return; }
+      h += '<div class="tbl"><table><tr><th>' + esc(t('sd.nama_produk')) + '</th><th>' + esc(t('sd.produsen')) + '</th><th>' + esc(t('sd.kategori')) + '</th>' + (j === 'kontrol' ? '<th>' + esc(t('sd.level')) + '</th>' : '') + '<th>' + esc(t('sd.kemasan')) + '</th><th>' + esc(t('sd.lot')) + '</th><th>' + esc(t('sd.ed')) + '</th><th>' + esc(t('sd.suhu')) + '</th><th>' + esc(t('sd.status')) + '</th><th></th></tr>' + list.map(function (b) {
+        var lockId = !ed || b.used;
+        var cell = function (k, lk, w) { return '<td' + (lk ? '' : ' class="in"') + '><input class="cell" style="min-width:' + (w || 100) + 'px" data-bhp="' + b.id + '" data-k="' + k + '" value="' + esc(b[k]) + '"' + (lk ? ' disabled' : '') + '></td>'; };
+        return '<tr' + (b.status === 'habis' ? ' style="opacity:.6"' : '') + '>' + cell('name', lockId, 180) + cell('produsen', !ed, 130) + '<td>' + esc(t('sd.kat.' + b.cat)) + '</td>' + (j === 'kontrol' ? cell('level', lockId) : '') + cell('kemasan', !ed) + cell('lot', lockId) +
+          '<td' + (lockId ? '' : ' class="in"') + '><input class="cell" type="date" data-bhp="' + b.id + '" data-k="ed" value="' + esc(b.ed) + '"' + (lockId ? ' disabled' : '') + '>' + (b.ed && b.ed < today && b.status !== 'habis' ? chip(t('sd.ed_lewat'), 'bad') : '') + '</td>' + cell('suhu', !ed, 120) +
+          '<td' + (ed ? ' class="in"' : '') + '><select class="cell" data-bhp="' + b.id + '" data-k="status"' + (ed ? '' : ' disabled') + '>' + opt('tersedia', t('sd.status_opsi.tersedia'), b.status === 'tersedia') + opt('habis', t('sd.status_opsi.habis'), b.status === 'habis') + '</select>' + (b.used ? '<div>' + chip(t('sd.dipakai_qc'), 'info') + '</div>' : '') + '</td>' +
+          '<td style="white-space:nowrap">' + (ed ? '<button class="btn o s" data-act="bhpNewLot" data-id="' + b.id + '">' + esc(t('sd.lot_baru')) + '</button>' + (b.used ? '' : ' <button class="btn o s" data-act="bhpDel" data-id="' + b.id + '">' + esc(t('sd.hapus')) + '</button>') : '') + '</td></tr>';
+      }).join('') + '</table></div></div>';
+    });
     return h;
   }
 
@@ -388,10 +495,7 @@ var App = (function () {
     }).join('') + '</table></div><div class="card" style="margin-top:12px"><div class="form"><label class="f">' + esc(t('spek.param_baru')) + '<input class="inp" id="npN"></label><label class="f">' + esc(t('lembar.kol_kategori')) + '<select class="inp" id="npC">' + opt('Kimia', 'Kimia') + opt('Hematologi', 'Hematologi') + '</select></label><label class="f">' + esc(t('lembar.satuan')) + '<input class="inp" id="npU"></label><div><button class="btn" data-act="paramAdd">' + esc(t('umum.tambah')) + '</button></div></div></div>';
   }
   function refAlat() {
-    return '<h2>' + esc(t('menu.ref_alat')) + '</h2><p class="muted">' + esc(t('admin.alat_ket')) + '</p><div class="card"><div class="form"><label class="f">' + esc(t('kasus.kol_pkm')) + '<select class="inp" id="naP">' + C.S.pkms.map(function (p) { return opt(p.id, p.name); }).join('') + '</select></label><label class="f">' + esc(t('admin.nama_alat')) + '<input class="inp" id="naN"></label><label class="f">' + esc(t('admin.merk')) + '<input class="inp" id="naM"></label><label class="f">' + esc(t('lembar.kol_kategori')) + '<select class="inp" id="naC">' + opt('Kimia', 'Kimia') + opt('Hematologi', 'Hematologi') + '</select></label><div><button class="btn" data-act="alatAdd">' + esc(t('umum.tambah')) + '</button></div></div></div>' +
-      '<div class="tbl" style="max-height:600px"><table><tr><th>' + esc(t('kasus.kol_pkm')) + '</th><th>' + esc(t('admin.nama_alat')) + '</th><th>' + esc(t('admin.merk')) + '</th><th>' + esc(t('lembar.kol_kategori')) + '</th><th>' + esc(t('admin.dipakai')) + '</th></tr>' + C.S.alats.map(function (a) {
-        return '<tr><td>' + esc(C.pkm(a.pkmId).name) + '</td><td><input class="cell" data-alat="' + a.id + '" data-k="name" value="' + esc(a.name) + '"></td><td><input class="cell" data-alat="' + a.id + '" data-k="merk" value="' + esc(a.merk) + '"></td><td>' + esc(a.cat) + '</td><td><input type="checkbox" data-act="alatActive" data-id="' + a.id + '" ' + (a.active ? 'checked' : '') + '></td></tr>';
-      }).join('') + '</table></div>';
+    return '<h2>' + esc(t('menu.ref_alat')) + '</h2><p class="muted">' + esc(t('admin.alat_ket')) + '</p>' + alatTable(C.S.alats, false, true);
   }
   function aturan() {
     var r = C.settings().rules || {};
@@ -432,8 +536,10 @@ var App = (function () {
     excl: function (el) { var id = sheetIdFromRoute(); keepScroll(); C.invalidate(id); call('run_excl', { sheetId: +id, runId: +el.dataset.run, v: el.checked }, el.checked ? t('lembar.tulis_alasan') : ''); },
     reagenLot: function (el) {
       var id = el.dataset.id;
-      var m = modal('<h3>' + esc(t('lembar.tombol_lot_reagen')) + '</h3><p class="small muted">' + esc(t('lembar.ket_lot_reagen')) + '</p><div class="form"><label class="f">' + esc(t('lembar.tanggal')) + '<input class="inp" type="date" id="mrD" value="' + C.today() + '"></label><label class="f">' + esc(t('lembar.lot_reagen_baru')) + '<input class="inp" id="mrL"></label></div><div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="mrOK">' + esc(t('umum.simpan')) + '</button></div>');
-      $('#mrOK', m).onclick = function () { C.invalidate(id); call('reagen_lot', { sheetId: +id, date: $('#mrD', m).value, lot: $('#mrL', m).value }, t('lembar.lot_reagen_dicatat')).then(function () { m.remove(); }); };
+      var sh = C.cachedSheet(id);
+      var rs = (C.S.bhp || []).filter(function (b) { return b.jenis === 'reagen' && b.cat === sh.cat && String(b.pkmId) === String(sh.pkmId) && b.status === 'tersedia'; });
+      var m = modal('<h3>' + esc(t('lembar.tombol_lot_reagen')) + '</h3><p class="small muted">' + esc(t('lembar.ket_lot_reagen')) + '</p><div class="form"><label class="f">' + esc(t('lembar.tanggal')) + '<input class="inp" type="date" id="mrD" max="' + C.today() + '" value="' + C.today() + '"></label><label class="f">' + esc(t('lembar.lot_reagen_baru')) + '<select class="inp" id="mrL">' + opt('', t('lembar.pilih')) + rs.map(function (b) { return opt(b.id, b.name + ' · LOT ' + b.lot + (b.ed ? ' · ED ' + b.ed : '')); }).join('') + '</select></label></div>' + (rs.length ? '' : '<p class="small"><a href="#sd-bhp" data-close>' + esc(t('lembar.isi_di_sd')) + '</a></p>') + '<div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="mrOK">' + esc(t('umum.simpan')) + '</button></div>');
+      $('#mrOK', m).onclick = function () { C.invalidate(id); call('reagen_lot', { sheetId: +id, date: $('#mrD', m).value, bhpId: +$('#mrL', m).value }, t('lembar.lot_reagen_dicatat')).then(function () { m.remove(); }); };
     },
     newLot: function (el) {
       var id = el.dataset.id;
@@ -459,8 +565,25 @@ var App = (function () {
     pkmAdd: function () { call('pkm_add', { name: $('#npkm').value }, t('umum.ditambahkan')); },
     paramAdd: function () { call('param_add', { name: $('#npN').value, cat: $('#npC').value, unit: $('#npU').value }, t('umum.ditambahkan')); },
     teaOK: function (el) { call('param_teaok', { id: +el.dataset.id, v: el.checked }); },
-    alatAdd: function () { call('alat_add', { pkmId: +$('#naP').value, name: $('#naN').value, merk: $('#naM').value, cat: $('#naC').value }, t('umum.ditambahkan')); },
-    alatActive: function (el) { call('alat_active', { id: +el.dataset.id, v: el.checked }); },
+    alatAdd: function () { call('alat_add', { name: $('#naN').value, merk: $('#naM').value, tipe: $('#naT').value, cat: $('#naC').value }, t('umum.ditambahkan')); },
+    alatActive: function (el) { keepScroll(); call('alat_active', { id: +el.dataset.id, v: el.checked }); },
+    sdmAdd: function () { call('sdm_add', { name: $('#nsdN').value, jabatan: $('#nsdJ').value }, t('umum.ditambahkan')).then(function (r) { go('sd-sdm-' + r.id); }); },
+    sdmActive: function (el) { keepScroll(); call('sdm_active', { id: +el.dataset.id, v: el.checked }); },
+    trainAdd: function (el) { call('sdm_train_add', { id: +el.dataset.id, name: $('#trN').value, by: $('#trB').value, tahun: $('#trT').value }, t('umum.ditambahkan')); },
+    trainDel: function (el) { keepScroll(); call('sdm_train_del', { id: +el.dataset.id, i: +el.dataset.i }); },
+    bhpAdd: function () { call('bhp_add', { jenis: $('#nbJ').value, name: $('#nbN').value, produsen: $('#nbP').value, cat: $('#nbC').value, level: $('#nbL').value, kemasan: $('#nbK').value, lot: $('#nbLot').value, ed: $('#nbE').value, suhu: $('#nbS').value }, t('umum.ditambahkan')); },
+    bhpHabis: function (el) { ui.showHabis = el.checked; keepScroll(); render(); },
+    bhpNewLot: function (el) {
+      var b = C.byId(C.S.bhp, el.dataset.id);
+      var m = modal('<h3>' + esc(t('sd.lot_baru_judul', { nama: b.name })) + '</h3><p class="small muted">' + esc(t('sd.lot_baru_ket', { lot: b.lot })) + '</p><div class="form"><label class="f">' + esc(t('sd.lot')) + '<input class="inp" id="mbL"></label><label class="f">' + esc(t('sd.ed')) + '<input class="inp" type="date" id="mbE"></label></div><div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="mbOK">' + esc(t('umum.simpan')) + '</button></div>');
+      $('#mbOK', m).onclick = function () { keepScroll(); call('bhp_newlot', { id: b.id, lot: $('#mbL', m).value, ed: $('#mbE', m).value }, t('umum.ditambahkan')).then(function () { m.remove(); }); };
+    },
+    bhpDel: function (el) {
+      var b = C.byId(C.S.bhp, el.dataset.id);
+      var m = modal('<h3>' + esc(t('sd.hapus')) + '</h3><p>' + esc(t('sd.hapus_konfirmasi', { nama: b.name, lot: b.lot })) + '</p><div class="row"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="mdOK">' + esc(t('sd.hapus')) + '</button></div>');
+      $('#mdOK', m).onclick = function () { m.remove(); keepScroll(); call('bhp_del', { id: b.id }, t('sd.terhapus')); };
+    },
+    sdOpen: function (el) { ui.sdOwner = el.dataset.pkm; go('sd-sdm'); },
     rule: function (el) { call('rule_toggle', { k: el.dataset.k, v: el.checked }); },
     saveK: function () { call('settings_k', { v: $('#kTE').value }, t('umum.tersimpan')); },
     saveTampilan: function () { call('settings_tampilan', { appName: $('#tA').value, longName: $('#tL').value, tagline: $('#tT').value, color: $('#tC').value }, t('umum.tersimpan')); }
@@ -473,6 +596,8 @@ var App = (function () {
     if (r.indexOf('lembar-') === 0) {
       var id = sheetIdFromRoute(); keepScroll();
       if (d.lv != null) { C.invalidate(id); return call('sheet_level', { sheetId: +id, i: +d.lv, k: d.k, v: el.value }); }
+      if (d.lvbhp != null) { if (!el.value) return; C.invalidate(id); return call('level_bhp', { sheetId: +id, i: +d.lvbhp, bhpId: +el.value }); }
+      if (d.reagenpick) { if (!el.value) return; C.invalidate(id); return call('reagen_pick', { sheetId: +id, bhpId: +el.value }); }
       if (d.meta) return call('sheet_meta', { sheetId: +id, k: d.meta, v: el.value });
       if (d.run) { C.invalidate(id); return call('run_value', { sheetId: +id, runId: +d.run, i: +d.i, v: el.value }, t('lembar.run_diperbarui')); }
       if (d.reason) { C.invalidate(id); return call('run_reason', { sheetId: +id, runId: +d.reason, v: el.value }); }
@@ -482,6 +607,13 @@ var App = (function () {
     if (d.pkm) { keepScroll(); return call('pkm_update', { id: +d.pkm, name: el.value }, t('umum.tersimpan')); }
     if (d.par) { keepScroll(); return call('param_update', { id: +d.par, k: d.k, v: el.value }, ['specSrc', 'level', 'cvi', 'cvg', 'bvSrc', 'tea', 'teaSrc'].indexOf(d.k) >= 0 ? t('spek.diperbarui') : t('umum.tersimpan')); }
     if (d.alat) { keepScroll(); return call('alat_update', { id: +d.alat, k: d.k, v: el.value }, t('umum.tersimpan')); }
+    if (d.sdm) { keepScroll(); return call('sdm_update', { id: +d.sdm, k: d.k, v: el.value }, t('umum.tersimpan')); }
+    if (d.bhp) { keepScroll(); return call('bhp_update', { id: +d.bhp, k: d.k, v: el.value }, t('umum.tersimpan')); }
+    if (d.sdowner != null) { ui.sdOwner = el.value; keepScroll(); render(); return; }
+    if (el.id === 'sdmFoto' && el.files && el.files[0]) {
+      var ff = new FormData(); ff.append('file', el.files[0]); ff.append('id', d.id);
+      return call('sdm_foto', null, t('sd.foto_tersimpan'), { form: ff });
+    }
     if (el.id === 'kopFile' && el.files && el.files[0]) {
       var fd = new FormData(); fd.append('file', el.files[0]);
       return call('kop_upload', null, t('kop.tersimpan'), { form: fd });

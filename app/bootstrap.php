@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 declare(strict_types=1);
 
-const SIPANDU_VERSION = '1.0.0-tahap1';
+const SIPANDU_VERSION = '1.1.0-tahap1';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -123,6 +123,15 @@ function set_setting(string $k, $v): void
 function sp_installed(): bool
 {
     try { return (bool)setting('installed_at'); } catch (Throwable $e) { return false; }
+}
+
+/** Menjalankan migrasi skema sekali bila versi skema terpasang lebih lama */
+function sp_ensure_schema(): void
+{
+    require_once __DIR__ . '/schema.php';
+    if ((int)setting('schema_v', 1) >= SP_SCHEMA_VERSION) return;
+    sp_migrate(sp_db(), sp_driver());
+    set_setting('schema_v', SP_SCHEMA_VERSION);
 }
 
 /* ---------- Sesi & keamanan ---------- */

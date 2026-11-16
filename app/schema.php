@@ -10,11 +10,18 @@ function sp_schema_sql(string $driver): array
     $eng = $my ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : '';
     $s = [];
     $s[] = "CREATE TABLE IF NOT EXISTS settings (k VARCHAR(64) PRIMARY KEY, v $txt)$eng";
-    $s[] = "CREATE TABLE IF NOT EXISTS puskesmas (id $pk, kode VARCHAR(20) NOT NULL UNIQUE, nama VARCHAR(150) NOT NULL, aktif INT NOT NULL DEFAULT 1)$eng";
+    $s[] = "CREATE TABLE IF NOT EXISTS puskesmas (id $pk, kode VARCHAR(20) NOT NULL UNIQUE, nama VARCHAR(150) NOT NULL, aktif INT NOT NULL DEFAULT 1, setup_at VARCHAR(19) NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS users (id $pk, role VARCHAR(10) NOT NULL, nama VARCHAR(150) NOT NULL, username VARCHAR(60) NOT NULL UNIQUE, pass_hash VARCHAR(255) NOT NULL, must_change INT NOT NULL DEFAULT 1, puskesmas_id INT NULL, nip VARCHAR(40) NULL, jabatan VARCHAR(120) NULL, aktif INT NOT NULL DEFAULT 1, created_at VARCHAR(19) NULL, last_login VARCHAR(19) NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS params (id $pk, nama VARCHAR(120) NOT NULL, kategori VARCHAR(20) NOT NULL, satuan VARCHAR(30) NULL, spec_src VARCHAR(10) NOT NULL DEFAULT 'lain', level VARCHAR(12) NOT NULL DEFAULT 'Desirable', cvi DOUBLE NULL, cvg DOUBLE NULL, bv_src VARCHAR(120) NULL, tea DOUBLE NULL, tea_src VARCHAR(120) NULL, tea_ok INT NOT NULL DEFAULT 0)$eng";
-    $s[] = "CREATE TABLE IF NOT EXISTS alat (id $pk, puskesmas_id INT NOT NULL, nama VARCHAR(150) NOT NULL, merk VARCHAR(150) NULL, kategori VARCHAR(20) NOT NULL, aktif INT NOT NULL DEFAULT 1)$eng";
-    $s[] = "CREATE TABLE IF NOT EXISTS sheets (id $pk, puskesmas_id INT NOT NULL, param_id INT NOT NULL, alat_id INT NOT NULL, kategori VARCHAR(20) NOT NULL, max_levels INT NOT NULL, levels $txt NOT NULL, metode VARCHAR(120) NULL, reagen VARCHAR(150) NULL, reagen_lot VARCHAR(60) NULL, satuan VARCHAR(30) NULL, status VARCHAR(10) NOT NULL DEFAULT 'aktif', created_at VARCHAR(19) NULL, closed_at VARCHAR(19) NULL, close_reason VARCHAR(150) NULL, prev_id INT NULL, reagen_events $txt NULL)$eng";
+    $s[] = "CREATE TABLE IF NOT EXISTS alat (id $pk, puskesmas_id INT NOT NULL, nama VARCHAR(150) NOT NULL, merk VARCHAR(150) NULL, kategori VARCHAR(20) NOT NULL, aktif INT NOT NULL DEFAULT 1, tipe VARCHAR(150) NULL, no_seri VARCHAR(80) NULL, prinsip VARCHAR(150) NULL, tahun VARCHAR(4) NULL, kondisi VARCHAR(12) NULL, kal_terakhir VARCHAR(10) NULL, kal_berikut VARCHAR(10) NULL, created_at VARCHAR(19) NULL)$eng";
+    // Sumber Daya: puskesmas_id = 0 berarti Labkesmas (akun Pembina)
+    $s[] = "CREATE TABLE IF NOT EXISTS personel (id $pk, puskesmas_id INT NOT NULL, nama VARCHAR(150) NOT NULL, nip VARCHAR(40) NULL, jabatan VARCHAR(150) NULL, pendidikan VARCHAR(150) NULL, str_no VARCHAR(80) NULL, str_berlaku VARCHAR(40) NULL, sip_no VARCHAR(80) NULL, pelatihan $txt NULL, foto_id INT NULL, foto_at VARCHAR(19) NULL, aktif INT NOT NULL DEFAULT 1, created_at VARCHAR(19) NULL)$eng";
+    $s[] = "CREATE INDEX idx_personel_pkm ON personel (puskesmas_id)";
+    $s[] = "CREATE TABLE IF NOT EXISTS personel_foto (id $pk, personel_id INT NOT NULL, file VARCHAR(100) NOT NULL, at VARCHAR(19) NOT NULL, by_name VARCHAR(150) NULL)$eng";
+    $s[] = "CREATE INDEX idx_pfoto_personel ON personel_foto (personel_id)";
+    $s[] = "CREATE TABLE IF NOT EXISTS bhp (id $pk, puskesmas_id INT NOT NULL, jenis VARCHAR(10) NOT NULL, nama VARCHAR(150) NOT NULL, produsen VARCHAR(150) NULL, kategori VARCHAR(20) NOT NULL, level VARCHAR(60) NULL, kemasan VARCHAR(80) NULL, lot VARCHAR(60) NOT NULL, ed VARCHAR(10) NULL, suhu VARCHAR(60) NULL, status VARCHAR(10) NOT NULL DEFAULT 'tersedia', prev_id INT NULL, created_at VARCHAR(19) NULL)$eng";
+    $s[] = "CREATE INDEX idx_bhp_pkm ON bhp (puskesmas_id, jenis)";
+    $s[] = "CREATE TABLE IF NOT EXISTS sheets (id $pk, puskesmas_id INT NOT NULL, param_id INT NOT NULL, alat_id INT NOT NULL, kategori VARCHAR(20) NOT NULL, max_levels INT NOT NULL, levels $txt NOT NULL, metode VARCHAR(120) NULL, reagen VARCHAR(150) NULL, reagen_lot VARCHAR(60) NULL, satuan VARCHAR(30) NULL, status VARCHAR(10) NOT NULL DEFAULT 'aktif', created_at VARCHAR(19) NULL, closed_at VARCHAR(19) NULL, close_reason VARCHAR(150) NULL, prev_id INT NULL, reagen_events $txt NULL, reagen_bhp_id INT NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS runs (id $pk, sheet_id INT NOT NULL, tgl VARCHAR(10) NOT NULL, seq INT NOT NULL DEFAULT 0, vals $txt NOT NULL, excluded INT NOT NULL DEFAULT 0, reason $txt NULL, note $txt NULL, by_user INT NULL, by_name VARCHAR(150) NULL, created_at VARCHAR(19) NULL, eval $txt NULL)$eng";
     $s[] = "CREATE INDEX idx_runs_sheet ON runs (sheet_id, tgl)";
     $s[] = "CREATE TABLE IF NOT EXISTS comments (id $pk, target VARCHAR(10) NOT NULL, target_id INT NOT NULL, user_id INT NULL, role VARCHAR(10) NULL, nama VARCHAR(150) NULL, at VARCHAR(19) NULL, body $txt NOT NULL)$eng";
@@ -44,8 +51,38 @@ function sp_create_schema(PDO $pdo, string $driver): void
     }
 }
 
+/** Versi skema saat ini; dinaikkan setiap ada kolom/tabel baru */
+const SP_SCHEMA_VERSION = 2;
+
+/** Kolom yang ditambahkan setelah versi 1 (untuk basis data yang sudah terpasang) */
+function sp_added_columns(string $driver): array
+{
+    $txt = $driver === 'mysql' ? 'LONGTEXT' : 'TEXT';
+    return [
+        'puskesmas' => ['setup_at' => 'VARCHAR(19) NULL'],
+        'alat' => ['tipe' => 'VARCHAR(150) NULL', 'no_seri' => 'VARCHAR(80) NULL', 'prinsip' => 'VARCHAR(150) NULL', 'tahun' => 'VARCHAR(4) NULL', 'kondisi' => 'VARCHAR(12) NULL', 'kal_terakhir' => 'VARCHAR(10) NULL', 'kal_berikut' => 'VARCHAR(10) NULL', 'created_at' => 'VARCHAR(19) NULL'],
+        'sheets' => ['reagen_bhp_id' => 'INT NULL'],
+    ];
+}
+
+/** Migrasi aman (dapat diulang): membuat tabel baru dan menambah kolom yang belum ada */
+function sp_migrate(PDO $pdo, string $driver): void
+{
+    sp_create_schema($pdo, $driver);
+    foreach (sp_added_columns($driver) as $table => $cols) {
+        foreach ($cols as $col => $def) {
+            try { $pdo->query("SELECT $col FROM $table LIMIT 0"); continue; } catch (PDOException $e) { /* kolom belum ada */ }
+            try { $pdo->exec("ALTER TABLE $table ADD COLUMN $col $def"); }
+            catch (PDOException $e) {
+                // permintaan lain yang berjalan bersamaan mungkin sudah menambahkannya
+                try { $pdo->query("SELECT $col FROM $table LIMIT 0"); } catch (PDOException $e2) { throw $e; }
+            }
+        }
+    }
+}
+
 /** Tabel yang wajib ada (dipakai uji mandiri) */
 function sp_required_tables(): array
 {
-    return ['settings', 'puskesmas', 'users', 'params', 'alat', 'sheets', 'runs', 'comments', 'cases', 'notifs', 'notif_reads', 'risks', 'kops', 'audit_log', 'login_attempts'];
+    return ['settings', 'puskesmas', 'users', 'params', 'alat', 'sheets', 'runs', 'comments', 'cases', 'notifs', 'notif_reads', 'risks', 'kops', 'audit_log', 'login_attempts', 'personel', 'personel_foto', 'bhp'];
 }

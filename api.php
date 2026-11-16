@@ -26,10 +26,51 @@ function int_in(array $d, string $k): int
 {
     return (int)($d[$k] ?? 0);
 }
+/** Tanggal opsional: '' atau YYYY-MM-DD yang valid */
+function date_in(array $d, string $k): string
+{
+    $v = trim((string)($d[$k] ?? ''));
+    if ($v === '') return '';
+    need((bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) && checkdate((int)substr($v, 5, 2), (int)substr($v, 8, 2), (int)substr($v, 0, 4)), 'galat.tanggal', 400);
+    return $v;
+}
+/** Baris Sumber Daya milik akun ini (untuk diubah) */
+function sd_own_row(string $table, int $id, array $u): array
+{
+    $r = q1("SELECT * FROM $table WHERE id = ?", [$id]);
+    need((bool)$r, 'galat.data_tidak_valid', 400);
+    $own = sd_owner($u);
+    need($own !== null && (int)$r['puskesmas_id'] === $own);
+    return $r;
+}
+/** Gambar unggahan → kanvas tetap (contain, latar putih, tanpa potong/distorsi) */
+function fit_image(string $raw, int $W, int $H, bool $fixOrientation)
+{
+    $src = @imagecreatefromstring($raw);
+    need($src !== false, 'galat.bukan_gambar', 400);
+    if ($fixOrientation && function_exists('exif_read_data')) {
+        $ex = @exif_read_data('data://image/jpeg;base64,' . base64_encode($raw));
+        $o = (int)($ex['Orientation'] ?? 1);
+        $ang = [3 => 180, 6 => 270, 8 => 90][$o] ?? 0;
+        if ($ang) { $r = imagerotate($src, $ang, 0); if ($r) { imagedestroy($src); $src = $r; } }
+    }
+    $dst = imagecreatetruecolor($W, $H);
+    imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
+    $ow = imagesx($src); $oh = imagesy($src);
+    $sc = min($W / $ow, $H / $oh);
+    $w = (int)round($ow * $sc); $hh = (int)round($oh * $sc);
+    imagecopyresampled($dst, $src, (int)(($W - $w) / 2), (int)(($H - $hh) / 2), 0, 0, $w, $hh, $ow, $oh);
+    imagedestroy($src);
+    return [$dst, $ow, $oh, $sc];
+}
+/** Aksi yang tetap terbuka bagi Binaan sebelum alur wajib selesai */
+const SETUP_OPEN = ['state', 'password_change', 'notif_read', 'notif_read_all', 'sdm_add', 'sdm_update', 'sdm_active', 'sdm_train_add', 'sdm_train_del', 'sdm_foto',
+    'alat_add', 'alat_update', 'alat_active', 'bhp_add', 'bhp_newlot', 'bhp_update', 'bhp_del', 'risk_save', 'kop_upload'];
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') fail('galat.metode', [], 405);
     if (!sp_installed()) fail('galat.belum_terpasang', [], 503);
+    sp_ensure_schema();
     sp_session_start();
     $isUpload = isset($_POST['a']);
     $d = $isUpload ? $_POST : (json_decode((string)file_get_contents('php://input'), true) ?: []);
@@ -40,6 +81,8 @@ try {
     if ($u['must_change'] && $a !== 'password_change') fail('galat.wajib_ganti_sandi', [], 403);
     $role = $u['role'];
     $isB = $role === 'binaan'; $isP = $role === 'pembina'; $isA = $role === 'admin';
+    if ($isB && !qval('SELECT setup_at FROM puskesmas WHERE id = ?', [$u['puskesmas_id']]) && !in_array($a, SETUP_OPEN, true)) fail('galat.setup_belum', [], 403);
+    $own = sd_owner($u);
     $result = null;
 
     switch ($a) {
@@ -79,17 +122,22 @@ try {
             $al = q1('SELECT * FROM alat WHERE id = ? AND puskesmas_id = ? AND aktif = 1', [int_in($d, 'alatId'), $u['puskesmas_id']]);
             need($p && $al, 'galat.data_tidak_valid', 400);
             need($p['kategori'] === $al['kategori'], 'galat.kategori_tidak_sesuai', 400);
+            need((bool)latest_risk((int)$u['puskesmas_id'], 'alat', (int)$al['id']), 'galat.alat_belum_dinilai', 400);
+            foreach (['kontrol', 'reagen'] as $jn)
+                need((bool)qval("SELECT COUNT(*) FROM bhp WHERE puskesmas_id = ? AND jenis = ? AND kategori = ? AND status = 'tersedia'", [$u['puskesmas_id'], $jn, $p['kategori']]), 'galat.bhp_kosong_' . $jn, 400);
             need(!qval("SELECT COUNT(*) FROM sheets WHERE puskesmas_id = ? AND param_id = ? AND alat_id = ? AND status = 'aktif'", [$u['puskesmas_id'], $p['id'], $al['id']]), 'galat.lembar_sudah_ada', 400);
             $names = $p['kategori'] === 'Kimia' ? [t('level.kimia1'), t('level.kimia2')] : [t('level.hema1'), t('level.hema2'), t('level.hema3')];
             $lv = (string)($d['lv'] ?? 'all');
             $nAct = $lv === 'all' ? count($names) : max(1, min((int)$lv, count($names)));
             $levels = [];
-            foreach ($names as $i => $nm) $levels[] = ['name' => $nm, 'control' => '', 'lot' => '', 'edPabrik' => '', 'edBuka' => '', 'mean' => null, 'sd' => null, 'active' => $i < $nAct];
+            foreach ($names as $i => $nm) $levels[] = ['name' => $nm, 'bhpId' => null, 'control' => '', 'lot' => '', 'edPabrik' => '', 'edBuka' => '', 'mean' => null, 'sd' => null, 'active' => $i < $nAct];
             $id = sp_insert('sheets', ['puskesmas_id' => $u['puskesmas_id'], 'param_id' => $p['id'], 'alat_id' => $al['id'], 'kategori' => $p['kategori'], 'max_levels' => count($names), 'levels' => jenc($levels), 'satuan' => $p['satuan'], 'status' => 'aktif', 'created_at' => today_str(), 'reagen_events' => '[]']);
             audit('sheet_create', ['id' => $id]);
             $result = ['id' => $id];
             break;
         case 'sheet_level':
+        case 'level_bhp':
+        case 'reagen_pick':
         case 'sheet_meta':
         case 'level_active':
         case 'run_add':
@@ -107,17 +155,32 @@ try {
             $hasRuns = (int)qval('SELECT COUNT(*) FROM runs WHERE sheet_id = ?', [$sid]) > 0;
             if ($a === 'sheet_level') {
                 $i = int_in($d, 'i'); $k = (string)($d['k'] ?? '');
-                need(isset($levels[$i]) && in_array($k, ['control', 'lot', 'edPabrik', 'edBuka', 'mean', 'sd'], true), 'galat.data_tidak_valid', 400);
+                need(isset($levels[$i]) && in_array($k, ['edBuka', 'mean', 'sd'], true), 'galat.data_tidak_valid', 400);
                 if ($k === 'mean' || $k === 'sd') {
                     $raw = $d['v'] ?? null;
                     $v = num_or_null($raw);
                     need(!($raw !== null && $raw !== '' && $v === null), 'galat.harus_angka', 400);
                     $levels[$i][$k] = $v;
-                } else $levels[$i][$k] = str_in($d, 'v', 120);
+                } else $levels[$i][$k] = date_in($d, 'v');
                 q('UPDATE sheets SET levels = ? WHERE id = ?', [jenc($levels), $sid]);
                 if ($k === 'mean' || $k === 'sd') sheet_sync($sid);
+            } elseif ($a === 'level_bhp') {
+                $i = int_in($d, 'i');
+                need(isset($levels[$i]) && ($levels[$i]['active'] ?? true) !== false, 'galat.data_tidak_valid', 400);
+                $b = q1("SELECT * FROM bhp WHERE id = ? AND puskesmas_id = ? AND jenis = 'kontrol' AND kategori = ? AND status = 'tersedia'", [int_in($d, 'bhpId'), $sh['puskesmas_id'], $sh['kategori']]);
+                need((bool)$b, 'galat.pilih_bhp', 400);
+                $cur = (string)($levels[$i]['lot'] ?? '');
+                need(!$hasRuns || $cur === '' || $cur === $b['lot'], 'galat.lot_kontrol_beda', 400);
+                $levels[$i]['bhpId'] = (int)$b['id']; $levels[$i]['control'] = $b['nama']; $levels[$i]['lot'] = $b['lot']; $levels[$i]['edPabrik'] = (string)$b['ed'];
+                q('UPDATE sheets SET levels = ? WHERE id = ?', [jenc($levels), $sid]);
+                audit('level_bhp', ['sheet' => $sid, 'i' => $i, 'bhp' => (int)$b['id']]);
+            } elseif ($a === 'reagen_pick') {
+                need(!$hasRuns || !$sh['reagen_lot'], 'galat.reagen_pakai_tombol', 400);
+                $b = q1("SELECT * FROM bhp WHERE id = ? AND puskesmas_id = ? AND jenis = 'reagen' AND kategori = ? AND status = 'tersedia'", [int_in($d, 'bhpId'), $sh['puskesmas_id'], $sh['kategori']]);
+                need((bool)$b, 'galat.pilih_bhp', 400);
+                q('UPDATE sheets SET reagen = ?, reagen_lot = ?, reagen_bhp_id = ? WHERE id = ?', [$b['nama'], $b['lot'], $b['id'], $sid]);
             } elseif ($a === 'sheet_meta') {
-                $map = ['method' => 'metode', 'reagen' => 'reagen', 'reagenLot' => 'reagen_lot', 'unit' => 'satuan'];
+                $map = ['method' => 'metode', 'unit' => 'satuan'];
                 $k = (string)($d['k'] ?? '');
                 need(isset($map[$k]), 'galat.data_tidak_valid', 400);
                 q("UPDATE sheets SET {$map[$k]} = ? WHERE id = ?", [str_in($d, 'v', 120), $sid]);
@@ -150,15 +213,17 @@ try {
                 audit('run_add', ['sheet' => $sid, 'run' => $rid]);
             } else {
                 if ($a === 'reagen_lot') {
-                    $lot = str_in($d, 'lot', 60); $date = (string)($d['date'] ?? today_str());
-                    need($lot !== '' && (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $date), 'galat.isi_lot', 400);
-                    $evs = jdec($sh['reagen_events']); $evs[] = ['date' => $date, 'lot' => $lot];
-                    q('UPDATE sheets SET reagen_events = ?, reagen_lot = ? WHERE id = ?', [jenc($evs), $lot, $sid]);
+                    $date = date_in($d, 'date');
+                    $b = q1("SELECT * FROM bhp WHERE id = ? AND puskesmas_id = ? AND jenis = 'reagen' AND kategori = ? AND status = 'tersedia'", [int_in($d, 'bhpId'), $sh['puskesmas_id'], $sh['kategori']]);
+                    need($b && $date !== '', 'galat.isi_lot', 400);
+                    need($date <= today_str(), 'galat.tanggal_depan', 400);
+                    $evs = jdec($sh['reagen_events']); $evs[] = ['date' => $date, 'lot' => $b['lot'], 'bhpId' => (int)$b['id']];
+                    q('UPDATE sheets SET reagen_events = ?, reagen = ?, reagen_lot = ?, reagen_bhp_id = ? WHERE id = ?', [jenc($evs), $b['nama'], $b['lot'], $b['id'], $sid]);
                 } elseif ($a === 'new_lot') {
                     q("UPDATE sheets SET status = 'ditutup', closed_at = ?, close_reason = ? WHERE id = ?", [today_str(), t('lembar.alasan_tutup_lot'), $sid]);
-                    foreach ($levels as &$l) { $l['lot'] = ''; $l['mean'] = null; $l['sd'] = null; $l['edPabrik'] = ''; $l['edBuka'] = ''; }
+                    foreach ($levels as &$l) { $l['bhpId'] = null; $l['control'] = ''; $l['lot'] = ''; $l['mean'] = null; $l['sd'] = null; $l['edPabrik'] = ''; $l['edBuka'] = ''; }
                     unset($l);
-                    $nid = sp_insert('sheets', ['puskesmas_id' => $sh['puskesmas_id'], 'param_id' => $sh['param_id'], 'alat_id' => $sh['alat_id'], 'kategori' => $sh['kategori'], 'max_levels' => $sh['max_levels'], 'levels' => jenc($levels), 'metode' => $sh['metode'], 'reagen' => $sh['reagen'], 'reagen_lot' => $sh['reagen_lot'], 'satuan' => $sh['satuan'], 'status' => 'aktif', 'created_at' => today_str(), 'prev_id' => $sid, 'reagen_events' => '[]']);
+                    $nid = sp_insert('sheets', ['puskesmas_id' => $sh['puskesmas_id'], 'param_id' => $sh['param_id'], 'alat_id' => $sh['alat_id'], 'kategori' => $sh['kategori'], 'max_levels' => $sh['max_levels'], 'levels' => jenc($levels), 'metode' => $sh['metode'], 'reagen' => $sh['reagen'], 'reagen_lot' => $sh['reagen_lot'], 'reagen_bhp_id' => $sh['reagen_bhp_id'], 'satuan' => $sh['satuan'], 'status' => 'aktif', 'created_at' => today_str(), 'prev_id' => $sid, 'reagen_events' => '[]']);
                     notify('pembina', t('notif.ganti_lot', ['pkm' => pkm_name((int)$sh['puskesmas_id']), 'matriks' => matrix_name($sh)]), 'lembar-' . $nid);
                     audit('new_lot', ['old' => $sid, 'new' => $nid]);
                     $result = ['id' => $nid];
@@ -288,6 +353,139 @@ try {
             audit('risk_save', ['aspect' => $aspect, 'alat' => $alatId]);
             break;
 
+        /* ---------- Sumber Daya: SDM ---------- */
+        case 'sdm_add':
+            need($own !== null);
+            $nama = str_in($d, 'name', 150);
+            need($nama !== '', 'galat.isi_nama', 400);
+            $id = sp_insert('personel', ['puskesmas_id' => $own, 'nama' => $nama, 'jabatan' => str_in($d, 'jabatan', 150), 'pelatihan' => '[]', 'aktif' => 1, 'created_at' => now_str()]);
+            audit('sdm_add', ['id' => $id]);
+            $result = ['id' => $id];
+            break;
+        case 'sdm_update':
+            $r = sd_own_row('personel', int_in($d, 'id'), $u);
+            $map = ['name' => 'nama', 'nip' => 'nip', 'jabatan' => 'jabatan', 'pendidikan' => 'pendidikan', 'strNo' => 'str_no', 'strBerlaku' => 'str_berlaku', 'sipNo' => 'sip_no'];
+            $k = (string)($d['k'] ?? '');
+            need(isset($map[$k]), 'galat.data_tidak_valid', 400);
+            $v = str_in($d, 'v', in_array($k, ['nip', 'strBerlaku'], true) ? 40 : 150);
+            need($k !== 'name' || $v !== '', 'galat.isi_nama', 400);
+            q("UPDATE personel SET {$map[$k]} = ? WHERE id = ?", [$v, $r['id']]);
+            break;
+        case 'sdm_active':
+            $r = sd_own_row('personel', int_in($d, 'id'), $u);
+            q('UPDATE personel SET aktif = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, $r['id']]);
+            audit('sdm_active', ['id' => $r['id'], 'v' => !empty($d['v'])]);
+            break;
+        case 'sdm_train_add':
+        case 'sdm_train_del':
+            $r = sd_own_row('personel', int_in($d, 'id'), $u);
+            $list = jdec($r['pelatihan']);
+            if ($a === 'sdm_train_add') {
+                $nm = str_in($d, 'name', 200); $th = str_in($d, 'tahun', 4);
+                need($nm !== '', 'galat.isi_pelatihan', 400);
+                need($th === '' || (bool)preg_match('/^(19|20)\d{2}$/', $th), 'galat.tahun', 400);
+                need(count($list) < 100, 'galat.data_tidak_valid', 400);
+                $list[] = ['name' => $nm, 'by' => str_in($d, 'by', 150), 'tahun' => $th];
+            } else {
+                $i = int_in($d, 'i');
+                need(isset($list[$i]), 'galat.data_tidak_valid', 400);
+                array_splice($list, $i, 1);
+            }
+            q('UPDATE personel SET pelatihan = ? WHERE id = ?', [jenc(array_values($list)), $r['id']]);
+            break;
+        case 'sdm_foto':
+            $r = sd_own_row('personel', int_in($d, 'id'), $u);
+            need(isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name']), 'galat.unggah', 400);
+            need($_FILES['file']['size'] <= 5 * 1024 * 1024, 'galat.foto_besar', 400);
+            $raw = (string)file_get_contents($_FILES['file']['tmp_name']);
+            $info = @getimagesizefromstring($raw);
+            need($info !== false && in_array($info[2], [IMAGETYPE_PNG, IMAGETYPE_JPEG], true), 'galat.bukan_foto', 400);
+            need($info[0] * $info[1] <= 40000000, 'galat.foto_besar', 400);
+            [$img] = fit_image($raw, 600, 800, $info[2] === IMAGETYPE_JPEG);
+            $file = 'p' . (int)$r['id'] . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(3)) . '.jpg';
+            imagejpeg($img, data_dir('foto') . '/' . $file, 85);
+            imagedestroy($img);
+            $fid = sp_insert('personel_foto', ['personel_id' => $r['id'], 'file' => $file, 'at' => now_str(), 'by_name' => $u['nama']]);
+            q('UPDATE personel SET foto_id = ?, foto_at = ? WHERE id = ?', [$fid, now_str(), $r['id']]);
+            audit('sdm_foto', ['id' => $r['id']]);
+            break;
+
+        /* ---------- Sumber Daya: Peralatan ---------- */
+        case 'alat_add':
+            need($own !== null);
+            $nama = str_in($d, 'name', 150); $kat = (string)($d['cat'] ?? '');
+            need($nama !== '', 'galat.isi_nama', 400);
+            need(in_array($kat, ALAT_KAT, true), 'galat.data_tidak_valid', 400);
+            $id = sp_insert('alat', ['puskesmas_id' => $own, 'nama' => $nama, 'merk' => str_in($d, 'merk', 150), 'tipe' => str_in($d, 'tipe', 150), 'kategori' => $kat, 'aktif' => 1, 'kondisi' => 'baik', 'created_at' => now_str()]);
+            audit('alat_add', ['id' => $id]);
+            $result = ['id' => $id];
+            break;
+        case 'alat_update':
+            $r = sd_own_row('alat', int_in($d, 'id'), $u);
+            $map = ['name' => 'nama', 'merk' => 'merk', 'tipe' => 'tipe', 'noSeri' => 'no_seri', 'prinsip' => 'prinsip', 'tahun' => 'tahun', 'kondisi' => 'kondisi', 'kalTerakhir' => 'kal_terakhir', 'kalBerikut' => 'kal_berikut', 'cat' => 'kategori'];
+            $k = (string)($d['k'] ?? '');
+            need(isset($map[$k]), 'galat.data_tidak_valid', 400);
+            if ($k === 'kalTerakhir' || $k === 'kalBerikut') $v = date_in($d, 'v');
+            elseif ($k === 'tahun') { $v = str_in($d, 'v', 4); need($v === '' || (bool)preg_match('/^(19|20)\d{2}$/', $v), 'galat.tahun', 400); }
+            elseif ($k === 'kondisi') { $v = (string)($d['v'] ?? ''); need(in_array($v, ALAT_KONDISI, true), 'galat.data_tidak_valid', 400); }
+            elseif ($k === 'cat') {
+                $v = (string)($d['v'] ?? '');
+                need(in_array($v, ALAT_KAT, true), 'galat.data_tidak_valid', 400);
+                need(!qval('SELECT COUNT(*) FROM sheets WHERE alat_id = ?', [$r['id']]), 'galat.kategori_alat_terkunci', 400);
+            } else { $v = str_in($d, 'v', 150); need($k !== 'name' || $v !== '', 'galat.isi_nama', 400); }
+            q("UPDATE alat SET {$map[$k]} = ? WHERE id = ?", [$v, $r['id']]);
+            break;
+        case 'alat_active':
+            $r = sd_own_row('alat', int_in($d, 'id'), $u);
+            q('UPDATE alat SET aktif = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, $r['id']]);
+            audit('alat_active', ['id' => $r['id'], 'v' => !empty($d['v'])]);
+            break;
+
+        /* ---------- Sumber Daya: Bahan Habis Pakai ---------- */
+        case 'bhp_add':
+        case 'bhp_newlot':
+            need($own !== null);
+            if ($a === 'bhp_newlot') {
+                $src = sd_own_row('bhp', int_in($d, 'id'), $u);
+                $row = ['jenis' => $src['jenis'], 'nama' => $src['nama'], 'produsen' => $src['produsen'], 'kategori' => $src['kategori'], 'level' => $src['level'], 'kemasan' => $src['kemasan'], 'suhu' => $src['suhu'], 'prev_id' => (int)$src['id']];
+            } else {
+                $row = ['jenis' => (string)($d['jenis'] ?? ''), 'nama' => str_in($d, 'name', 150), 'produsen' => str_in($d, 'produsen', 150), 'kategori' => (string)($d['cat'] ?? ''),
+                    'level' => str_in($d, 'level', 60), 'kemasan' => str_in($d, 'kemasan', 80), 'suhu' => str_in($d, 'suhu', 60), 'prev_id' => null];
+                need(in_array($row['jenis'], BHP_JENIS, true) && in_array($row['kategori'], ['Kimia', 'Hematologi'], true), 'galat.data_tidak_valid', 400);
+                need($row['nama'] !== '', 'galat.isi_nama', 400);
+                if ($row['jenis'] !== 'kontrol') $row['level'] = '';
+            }
+            $row['lot'] = str_in($d, 'lot', 60); $row['ed'] = date_in($d, 'ed');
+            need($row['lot'] !== '', 'galat.isi_lot_bhp', 400);
+            need(!qval('SELECT COUNT(*) FROM bhp WHERE puskesmas_id = ? AND jenis = ? AND nama = ? AND lot = ?', [$own, $row['jenis'], $row['nama'], $row['lot']]), 'galat.lot_sudah_ada', 400);
+            $id = sp_insert('bhp', $row + ['puskesmas_id' => $own, 'status' => 'tersedia', 'created_at' => now_str()]);
+            audit($a, ['id' => $id]);
+            $result = ['id' => $id];
+            break;
+        case 'bhp_update':
+            $r = sd_own_row('bhp', int_in($d, 'id'), $u);
+            $used = isset(bhp_used_ids((int)$r['puskesmas_id'])[(int)$r['id']]);
+            $map = ['name' => 'nama', 'produsen' => 'produsen', 'level' => 'level', 'kemasan' => 'kemasan', 'lot' => 'lot', 'ed' => 'ed', 'suhu' => 'suhu', 'status' => 'status'];
+            $k = (string)($d['k'] ?? '');
+            need(isset($map[$k]), 'galat.data_tidak_valid', 400);
+            need(!$used || in_array($k, ['produsen', 'kemasan', 'suhu', 'status'], true), 'galat.bhp_terkunci', 400);
+            if ($k === 'ed') $v = date_in($d, 'v');
+            elseif ($k === 'status') { $v = (string)($d['v'] ?? ''); need(in_array($v, ['tersedia', 'habis'], true), 'galat.data_tidak_valid', 400); }
+            else {
+                $v = str_in($d, 'v', $k === 'lot' ? 60 : 150);
+                need(!in_array($k, ['name', 'lot'], true) || $v !== '', $k === 'lot' ? 'galat.isi_lot_bhp' : 'galat.isi_nama', 400);
+            }
+            if ($k === 'name' || $k === 'lot') need(!qval('SELECT COUNT(*) FROM bhp WHERE puskesmas_id = ? AND jenis = ? AND nama = ? AND lot = ? AND id <> ?', [$r['puskesmas_id'], $r['jenis'], $k === 'name' ? $v : $r['nama'], $k === 'lot' ? $v : $r['lot'], $r['id']]), 'galat.lot_sudah_ada', 400);
+            q("UPDATE bhp SET {$map[$k]} = ? WHERE id = ?", [$v, $r['id']]);
+            break;
+        case 'bhp_del':
+            $r = sd_own_row('bhp', int_in($d, 'id'), $u);
+            need(!isset(bhp_used_ids((int)$r['puskesmas_id'])[(int)$r['id']]), 'galat.bhp_dipakai', 400);
+            q('UPDATE bhp SET prev_id = NULL WHERE prev_id = ?', [$r['id']]);
+            q('DELETE FROM bhp WHERE id = ?', [$r['id']]);
+            audit('bhp_del', ['id' => $r['id'], 'lot' => $r['lot']]);
+            break;
+
         /* ---------- Kop dokumen ---------- */
         case 'kop_upload':
             need($isB || $isP);
@@ -298,18 +496,11 @@ try {
             $info = @getimagesizefromstring($raw);
             need($info !== false && in_array($info[2], [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_GIF, IMAGETYPE_WEBP], true), 'galat.bukan_gambar', 400);
             need($info[0] * $info[1] <= 40000000, 'galat.unggah_besar', 400);
-            $src = @imagecreatefromstring($raw);
-            need($src !== false, 'galat.bukan_gambar', 400);
+            [$dst, $ow, $oh, $sc] = fit_image($raw, 2008, 413, false);
             [$W, $H] = [2008, 413];
-            $dst = imagecreatetruecolor($W, $H);
-            imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
-            $ow = imagesx($src); $oh = imagesy($src);
-            $sc = min($W / $ow, $H / $oh);
-            $w = (int)round($ow * $sc); $hh = (int)round($oh * $sc);
-            imagecopyresampled($dst, $src, (int)(($W - $w) / 2), (int)(($H - $hh) / 2), 0, 0, $w, $hh, $ow, $oh);
             $file = preg_replace('/[^a-z0-9]/', '_', $key) . '.png';
             imagepng($dst, data_dir('kop') . '/' . $file, 6);
-            imagedestroy($src); imagedestroy($dst);
+            imagedestroy($dst);
             $meta = ['by' => $u['nama'], 'ow' => $ow, 'oh' => $oh, 'fitted' => $ow !== $W || $oh !== $H, 'scale' => $sc];
             if (qval('SELECT COUNT(*) FROM kops WHERE owner_key = ?', [$key])) q('UPDATE kops SET file = ?, info = ?, updated_at = ? WHERE owner_key = ?', [$file, jenc($meta), now_str(), $key]);
             else sp_insert('kops', ['owner_key' => $key, 'file' => $file, 'info' => jenc($meta), 'updated_at' => now_str()]);
@@ -414,24 +605,6 @@ try {
             q('UPDATE params SET tea_ok = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, int_in($d, 'id')]);
             audit('param_teaok', ['id' => int_in($d, 'id'), 'v' => !empty($d['v'])]);
             break;
-        case 'alat_add':
-            need($isA);
-            $nama = str_in($d, 'name', 150); $kat = (string)($d['cat'] ?? ''); $pkmId = int_in($d, 'pkmId');
-            need($nama !== '' && in_array($kat, ['Kimia', 'Hematologi'], true) && qval('SELECT COUNT(*) FROM puskesmas WHERE id = ?', [$pkmId]), 'galat.data_tidak_valid', 400);
-            sp_insert('alat', ['puskesmas_id' => $pkmId, 'nama' => $nama, 'merk' => str_in($d, 'merk', 150), 'kategori' => $kat, 'aktif' => 1]);
-            break;
-        case 'alat_update':
-            need($isA);
-            $k = (string)($d['k'] ?? '');
-            need(in_array($k, ['name', 'merk'], true), 'galat.data_tidak_valid', 400);
-            $v = str_in($d, 'v', 150);
-            need($k !== 'name' || $v !== '', 'galat.isi_nama', 400);
-            q('UPDATE alat SET ' . ($k === 'name' ? 'nama' : 'merk') . ' = ? WHERE id = ?', [$v, int_in($d, 'id')]);
-            break;
-        case 'alat_active':
-            need($isA);
-            q('UPDATE alat SET aktif = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, int_in($d, 'id')]);
-            break;
         case 'rule_toggle':
             need($isA);
             $k = (string)($d['k'] ?? '');
@@ -457,6 +630,7 @@ try {
         default:
             fail('galat.aksi_tidak_dikenal');
     }
+    if ($isB) setup_check((int)$u['puskesmas_id']);
     echo jenc(['ok' => true, 'data' => $result, 'state' => app_state(current_user_fresh($u['id']))]);
 } catch (ApiError $e) {
     http_response_code($e->getCode() ?: 400);

@@ -13,12 +13,14 @@ $add = function (string $label, bool $ok, string $detail = '') use (&$rows) { $r
 $add('PHP ' . PHP_VERSION, version_compare(PHP_VERSION, SIPANDU_MIN_PHP, '>='), 'minimal ' . SIPANDU_MIN_PHP);
 foreach (['pdo', 'pdo_mysql', 'gd', 'mbstring', 'json', 'session', 'openssl'] as $e) $add('ekstensi ' . $e, extension_loaded($e));
 $add('HTTPS', sp_https());
+$add('ekstensi exif (orientasi foto ponsel)', true, extension_loaded('exif') ? 'ada' : 'tidak ada – foto tetap diterima tanpa koreksi orientasi');
 $dd = rtrim($cfg['data_dir'], '/');
 $add('folder data di luar web root', is_dir($dd) && is_writable($dd) && !str_starts_with(realpath($dd) ?: $dd, realpath(__DIR__) ?: __DIR__), basename($dd));
 try {
     $pdo = sp_db();
     $ver = (string)$pdo->query(sp_driver() === 'sqlite' ? 'SELECT sqlite_version()' : 'SELECT VERSION()')->fetchColumn();
     $add('koneksi basis data', true, $ver);
+    if (sp_installed()) { sp_ensure_schema(); $add('versi skema', (int)setting('schema_v', 1) >= SP_SCHEMA_VERSION, (string)setting('schema_v', 1)); }
     $tables = [];
     foreach ($pdo->query(sp_driver() === 'sqlite' ? "SELECT name FROM sqlite_master WHERE type='table'" : 'SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $tn) $tables[] = $tn;
     $missing = array_diff(sp_required_tables(), $tables);

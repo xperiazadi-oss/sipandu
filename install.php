@@ -39,8 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $allOk) {
     else {
         require __DIR__ . '/app/seed.php';
         $pdo = sp_db();
-        sp_create_schema($pdo, sp_driver());
+        sp_migrate($pdo, sp_driver());
         $accounts = sp_seed_initial($p1);
+        set_setting('schema_v', SP_SCHEMA_VERSION);
         set_setting('installed_at', now_str());
         echo '<div class="big-status c-ok">' . h(t('pasang.selesai')) . '</div><p>' . h(t('pasang.catat_sandi')) . '</p>';
         echo '<div class="tbl"><table id="acc"><tr><th>' . h(t('pasang.kol_peran')) . '</th><th>' . h(t('pasang.kol_nama')) . '</th><th>' . h(t('pasang.kol_username')) . '</th><th>' . h(t('pasang.kol_sandi')) . '</th></tr>';

@@ -10,6 +10,7 @@ if (!sp_installed()) {
     http_response_code(503);
     exit(h(t('galat.belum_terpasang')));
 }
+sp_ensure_schema();
 sp_session_start();
 $tampil = array_merge(['appName' => t('app.nama'), 'longName' => t('app.kepanjangan'), 'tagline' => t('app.slogan'), 'color' => '#0d5c63'], array_filter(setting('tampilan', []) ?: []));
 $err = '';

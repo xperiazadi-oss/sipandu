@@ -165,6 +165,7 @@ function out_sheet(array $sh): array
         'maxLevels' => (int)$sh['max_levels'], 'levels' => jdec($sh['levels']), 'method' => $sh['metode'], 'reagen' => $sh['reagen'], 'reagenLot' => $sh['reagen_lot'],
         'unit' => $sh['satuan'], 'status' => $sh['status'], 'createdAt' => $sh['created_at'], 'closedAt' => $sh['closed_at'], 'closeReason' => $sh['close_reason'],
         'prevId' => $sh['prev_id'] === null ? null : (int)$sh['prev_id'], 'reagenEvents' => jdec($sh['reagen_events']),
+        'reagenBhpId' => ($sh['reagen_bhp_id'] ?? null) === null ? null : (int)$sh['reagen_bhp_id'],
     ];
 }
 function out_run(array $r): array
@@ -227,8 +228,11 @@ function app_state(array $u): array
     ];
     $S['pkms'] = array_map(fn($p) => ['id' => (int)$p['id'], 'kode' => $p['kode'], 'name' => $p['nama'], 'active' => (bool)$p['aktif']],
         $pk ? qall('SELECT * FROM puskesmas WHERE id = ?', [$pk]) : qall('SELECT * FROM puskesmas ORDER BY kode'));
-    $S['alats'] = array_map(fn($a) => ['id' => (int)$a['id'], 'pkmId' => (int)$a['puskesmas_id'], 'name' => $a['nama'], 'merk' => (string)$a['merk'], 'cat' => $a['kategori'], 'active' => (bool)$a['aktif']],
-        $pk ? qall('SELECT * FROM alat WHERE puskesmas_id = ? ORDER BY id', [$pk]) : qall('SELECT * FROM alat ORDER BY puskesmas_id, id'));
+    $S['alats'] = array_map('out_alat', $pk ? qall('SELECT * FROM alat WHERE puskesmas_id = ? ORDER BY id', [$pk]) : qall('SELECT * FROM alat ORDER BY puskesmas_id, id'));
+    $S['personel'] = out_personel_list($pk ? qall('SELECT * FROM personel WHERE puskesmas_id = ? ORDER BY id', [$pk]) : qall('SELECT * FROM personel ORDER BY puskesmas_id, id'));
+    $used = bhp_used_ids($pk);
+    $S['bhp'] = array_map(fn($b) => out_bhp($b, isset($used[(int)$b['id']])), $pk ? qall('SELECT * FROM bhp WHERE puskesmas_id = ? ORDER BY jenis, nama, id', [$pk]) : qall('SELECT * FROM bhp ORDER BY puskesmas_id, jenis, nama, id'));
+    $S['setup'] = $role === 'binaan' ? setup_status($pk) : null;
     if ($role === 'admin') {
         $S['users'] = array_map('out_user', qall('SELECT * FROM users ORDER BY role, id'));
         $S['sheets'] = []; $S['cases'] = []; $S['risks'] = [];
@@ -261,4 +265,89 @@ function can_view_pkm(array $u, int $pkmId): bool
 {
     if ($u['role'] === 'pembina') return true;
     return $u['role'] === 'binaan' && (int)$u['puskesmas_id'] === $pkmId;
+}
+
+/* ---------- Sumber Daya (SDM, Peralatan, Bahan Habis Pakai) ---------- */
+const ALAT_KAT = ['Kimia', 'Hematologi', 'Lainnya'];
+const ALAT_KONDISI = ['baik', 'perbaikan', 'rusak'];
+const BHP_JENIS = ['kontrol', 'reagen'];
+
+/** Pemilik data Sumber Daya untuk akun: id Puskesmas (Binaan), 0 = Labkesmas (Pembina), null = hanya melihat (Admin) */
+function sd_owner(array $u): ?int
+{
+    if ($u['role'] === 'binaan') return (int)$u['puskesmas_id'];
+    if ($u['role'] === 'pembina') return 0;
+    return null;
+}
+/** Hak melihat data Sumber Daya: Admin & Pembina semua; Binaan hanya miliknya */
+function sd_can_view(array $u, int $pkmId): bool
+{
+    if ($u['role'] === 'admin' || $u['role'] === 'pembina') return true;
+    return (int)$u['puskesmas_id'] === $pkmId;
+}
+
+function out_alat(array $a): array
+{
+    return ['id' => (int)$a['id'], 'pkmId' => (int)$a['puskesmas_id'], 'name' => $a['nama'], 'merk' => (string)$a['merk'], 'cat' => $a['kategori'], 'active' => (bool)$a['aktif'],
+        'tipe' => (string)($a['tipe'] ?? ''), 'noSeri' => (string)($a['no_seri'] ?? ''), 'prinsip' => (string)($a['prinsip'] ?? ''), 'tahun' => (string)($a['tahun'] ?? ''),
+        'kondisi' => (string)($a['kondisi'] ?? ''), 'kalTerakhir' => (string)($a['kal_terakhir'] ?? ''), 'kalBerikut' => (string)($a['kal_berikut'] ?? '')];
+}
+function out_personel_list(array $rows): array
+{
+    if (!$rows) return [];
+    $ids = implode(',', array_map(fn($r) => (int)$r['id'], $rows));
+    $fotos = [];
+    foreach (qall("SELECT id, personel_id, at, by_name FROM personel_foto WHERE personel_id IN ($ids) ORDER BY id DESC") as $f)
+        $fotos[(int)$f['personel_id']][] = ['id' => (int)$f['id'], 'at' => $f['at'], 'by' => (string)$f['by_name']];
+    return array_map(fn($p) => [
+        'id' => (int)$p['id'], 'pkmId' => (int)$p['puskesmas_id'], 'name' => $p['nama'], 'nip' => (string)$p['nip'], 'jabatan' => (string)$p['jabatan'],
+        'pendidikan' => (string)$p['pendidikan'], 'strNo' => (string)$p['str_no'], 'strBerlaku' => (string)$p['str_berlaku'], 'sipNo' => (string)$p['sip_no'],
+        'pelatihan' => jdec($p['pelatihan']), 'fotoId' => $p['foto_id'] === null ? null : (int)$p['foto_id'], 'fotoAt' => $p['foto_at'],
+        'fotos' => $fotos[(int)$p['id']] ?? [], 'active' => (bool)$p['aktif'],
+    ], $rows);
+}
+function out_bhp(array $b, bool $used): array
+{
+    return ['id' => (int)$b['id'], 'pkmId' => (int)$b['puskesmas_id'], 'jenis' => $b['jenis'], 'name' => $b['nama'], 'produsen' => (string)$b['produsen'], 'cat' => $b['kategori'],
+        'level' => (string)$b['level'], 'kemasan' => (string)$b['kemasan'], 'lot' => $b['lot'], 'ed' => (string)$b['ed'], 'suhu' => (string)$b['suhu'], 'status' => $b['status'],
+        'prevId' => $b['prev_id'] === null ? null : (int)$b['prev_id'], 'used' => $used];
+}
+
+/** Id bahan habis pakai yang sudah dipakai di lembar QC (bahan kontrol per level, reagen, riwayat ganti LOT reagen) */
+function bhp_used_ids(?int $pkmId): array
+{
+    $used = [];
+    $rows = $pkmId === null ? qall('SELECT levels, reagen_bhp_id, reagen_events FROM sheets') : qall('SELECT levels, reagen_bhp_id, reagen_events FROM sheets WHERE puskesmas_id = ?', [$pkmId]);
+    foreach ($rows as $r) {
+        foreach (jdec($r['levels']) as $l) if (!empty($l['bhpId'])) $used[(int)$l['bhpId']] = true;
+        if ($r['reagen_bhp_id'] !== null) $used[(int)$r['reagen_bhp_id']] = true;
+        foreach (jdec($r['reagen_events']) as $e) if (!empty($e['bhpId'])) $used[(int)$e['bhpId']] = true;
+    }
+    return $used;
+}
+
+/** Alur wajib Binaan: SDM (≥1 personel aktif, semua personel aktif berfoto) → Peralatan (≥1 alat dipakai) → Manajemen Risiko lengkap */
+function setup_status(int $pkmId): array
+{
+    $done = (string)(qval('SELECT setup_at FROM puskesmas WHERE id = ?', [$pkmId]) ?? '');
+    $nAct = (int)qval('SELECT COUNT(*) FROM personel WHERE puskesmas_id = ? AND aktif = 1', [$pkmId]);
+    $nNoFoto = (int)qval('SELECT COUNT(*) FROM personel WHERE puskesmas_id = ? AND aktif = 1 AND foto_id IS NULL', [$pkmId]);
+    $alats = qall('SELECT id FROM alat WHERE puskesmas_id = ? AND aktif = 1', [$pkmId]);
+    $riskMissing = [];
+    foreach (['bahan', 'lingkungan', 'personel'] as $a) if (!latest_risk($pkmId, $a, null)) $riskMissing[] = $a;
+    $alatMissing = [];
+    foreach ($alats as $al) if (!latest_risk($pkmId, 'alat', (int)$al['id'])) $alatMissing[] = (int)$al['id'];
+    $sdm = $nAct > 0 && $nNoFoto === 0;
+    $alat = count($alats) > 0;
+    $risk = $alat && !$riskMissing && !$alatMissing;
+    return ['done' => $done !== '', 'doneAt' => $done ?: null, 'sdm' => $sdm, 'sdmActive' => $nAct, 'sdmNoFoto' => $nNoFoto, 'alat' => $alat,
+        'risk' => $risk, 'riskMissing' => $riskMissing, 'alatRiskMissing' => $alatMissing];
+}
+/** Membuka akses penuh sekali saat semua langkah selesai; setelah itu akun tidak dikunci lagi */
+function setup_check(int $pkmId): void
+{
+    $st = setup_status($pkmId);
+    if ($st['done'] || !($st['sdm'] && $st['alat'] && $st['risk'])) return;
+    q('UPDATE puskesmas SET setup_at = ? WHERE id = ?', [now_str(), $pkmId]);
+    audit('setup_done', ['pkm' => $pkmId]);
 }

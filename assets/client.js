@@ -58,6 +58,8 @@ var Core = (function () {
   function param(id) { return byId(S.params, id) || { name: '?' }; }
   function alat(id) { return byId(S.alats, id) || { name: '?' }; }
   function me() { return S.me; }
+  function ownerName(pkmId) { return String(pkmId) === '0' ? t('sd.labkesmas') : pkm(pkmId).name; }
+  function setupDone() { var u = S.me; return u.role !== 'binaan' || !S.setup || S.setup.done; }
   function matrixName(sh) { return param(sh.paramId).name + ' · ' + alat(sh.alatId).name; }
   function settings() { return S.settings || {}; }
   function evalSheet(sh) { return QCEngine.evaluate(sh, { enabled: settings().rules, k: settings().k }); }
@@ -108,7 +110,7 @@ var Core = (function () {
   return {
     get S() { return S; }, T: T, t: t, api: api, loadSheet: loadSheet, cachedSheet: cachedSheet, invalidate: invalidate,
     esc: esc, fmt: fmt, num: num, isNum: isNum, today: today, pad: pad, monthLabel: monthLabel,
-    byId: byId, pkm: pkm, param: param, alat: alat, me: me, matrixName: matrixName, settings: settings, evalSheet: evalSheet,
+    byId: byId, pkm: pkm, param: param, alat: alat, me: me, ownerName: ownerName, setupDone: setupDone, matrixName: matrixName, settings: settings, evalSheet: evalSheet,
     teaSpec: teaSpec, SPEC_LEVELS: SPEC_LEVELS, latestRisk: latestRisk, riskMax: riskMax, riskLevel: riskLevel, riskScores: riskScores,
     notIdeal: notIdeal, scopeText: scopeText, csrf: function () { return CSRF; }
   };

@@ -82,3 +82,7 @@ textarea{min-height:70px;width:100%}
 .toast.bad{background:var(--bad)}
 code{font-family:ui-monospace,Consolas,monospace;background:#f0f4f5;padding:1px 5px;border-radius:4px}
 .login form .btn{width:100%;padding:10px}
+.nav a.lock{opacity:.55}
+select.cell{width:100%;min-width:90px;border:1px solid #c9d3d8;background:#fff;padding:3px 4px;border-radius:4px;font:inherit}
+td.in select.cell{background:#f7fcf4;border-color:var(--in-line)}
+select.cell:disabled,input.cell:disabled{color:inherit}

@@ -12,6 +12,7 @@ Sistem Informasi Pembinaan dan Pengendalian Mutu Labkesmas Tingkat I Kota Balikp
 | `install.php` | Pemasangan awal (butuh `install_token`, terkunci setelah selesai) |
 | `selftest.php` | Uji mandiri server (butuh `selftest_token`) |
 | `kop.php` | Menyajikan kop dari folder data di luar web root |
+| `foto.php` | Menyajikan foto personel (Sumber Daya Manusia) dengan pemeriksaan hak akses |
 | `app/` | Inti, skema, logika bisnis, **mesin Westgard PHP**, `teks.php` (satu-satunya file teks tampilan) |
 | `assets/` | CSS dan JavaScript antarmuka (mesin Westgard JS identik) |
 | `tests/` | Uji kesetaraan Excel, skenario paper, uji pembanding JS↔PHP, uji integrasi |
@@ -34,5 +35,6 @@ Folder `app/`, `tests/`, dan `.git/` diblokir dari peramban oleh `.htaccess`.
 php tests/run_engine.php          # 7.428 pemeriksaan setara Excel + 23 skenario paper
 node tests/diff_gen.js && php tests/diff_check.php   # 3.000 lembar acak: mesin JS = mesin PHP
 php tests/check_teks.php          # semua kunci teks ada di app/teks.php
+php tests/migrate_test.php        # migrasi skema v1 → terbaru tanpa kehilangan data
 node tests/e2e_server.js          # uji integrasi 3 peran (server PHP lokal + Chrome)
 ```
