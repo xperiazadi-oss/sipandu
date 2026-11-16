@@ -1,0 +1,7 @@
+# konfigurasi & data tidak pernah masuk repo
+sipandu-config.php
+config.local.php
+/data/
+tests/data/diff_cases.json
+node_modules/
+*.sqlite

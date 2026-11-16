@@ -1,0 +1,19 @@
+# Si PANDU – perlindungan folder internal (repo ini dipasang langsung di public_html)
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# Paksa HTTPS
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# Blokir akses langsung ke kode internal, uji, dan metadata git
+RewriteRule ^(app|tests|database|\.git|\.github)(/|$) - [F,L]
+RewriteRule (^|/)\. - [F,L]
+RewriteRule \.(md|json|sql|lock|yml|yaml|ini|log|sh|txt)$ - [F,L]
+</IfModule>
+
+<FilesMatch "^(\.|composer\.|README|LICENSE)">
+  Require all denied
+</FilesMatch>
