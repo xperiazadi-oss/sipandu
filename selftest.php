@@ -1,6 +1,6 @@
 <?php
 /* Si PANDU – uji mandiri di server (butuh token dari konfigurasi). Tidak menampilkan data rahasia. */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/app/schema.php';
 header('Content-Type: text/html; charset=utf-8');

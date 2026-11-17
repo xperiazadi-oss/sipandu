@@ -1,6 +1,6 @@
 <?php
 /* Si PANDU – halaman masuk, ganti kata sandi wajib, dan kerangka aplikasi */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/app/domain.php';
 

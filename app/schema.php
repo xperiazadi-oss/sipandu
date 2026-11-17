@@ -1,6 +1,6 @@
 <?php
 /* Si PANDU – skema basis data (MariaDB/MySQL untuk hosting, SQLite untuk uji otomatis) */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
 function sp_schema_sql(string $driver): array
 {

@@ -1,6 +1,6 @@
 <?php
 /* Si PANDU – logika bisnis: lembar QC, evaluasi, kasus, notifikasi, risiko, spesifikasi TEa */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require_once __DIR__ . '/engine.php';
 
 const SPEC_LEVELS = ['Optimum' => [0.25, 0.125], 'Desirable' => [0.5, 0.25], 'Minimum' => [0.75, 0.375]];

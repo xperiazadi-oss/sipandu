@@ -1,7 +1,7 @@
 <?php
 /* Si PANDU – data awal saat pemasangan (sesuai kesepakatan: 1 Administrator, 2 Pembina, 27 Puskesmas binaan).
    Jumlah akun tidak dibatasi: Administrator dapat menambah Pembina, Binaan, dan Puskesmas kapan saja. */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
 function sp_seed_initial(string $adminPassword): array
 {

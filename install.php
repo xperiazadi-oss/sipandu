@@ -1,6 +1,6 @@
 <?php
 /* Si PANDU – pemasangan awal. Hanya dapat dijalankan dengan token dari file konfigurasi, dan mengunci diri setelah selesai. */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/app/schema.php';
 
@@ -40,7 +40,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $allOk) {
         require __DIR__ . '/app/seed.php';
         $pdo = sp_db();
         sp_migrate($pdo, sp_driver());
-        $accounts = sp_seed_initial($p1);
+        try { $accounts = sp_seed_initial($p1); }
+        catch (PDOException $e) {
+            // pengiriman ganda (mis. tombol tertekan dua kali): pemasangan pertama sudah berjalan
+            if (sp_db()->inTransaction()) sp_db()->rollBack();
+            echo '<div class="big-status c-ok">' . h(t('pasang.sudah')) . '</div><p><a href="./">' . h(t('pasang.ke_aplikasi')) . '</a></p></div></body></html>'; exit;
+        }
         set_setting('schema_v', SP_SCHEMA_VERSION);
         set_setting('installed_at', now_str());
         echo '<div class="big-status c-ok">' . h(t('pasang.selesai')) . '</div><p>' . h(t('pasang.catat_sandi')) . '</p>';

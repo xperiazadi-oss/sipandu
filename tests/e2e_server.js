@@ -266,6 +266,20 @@ const TOKEN = process.env.TOKEN || 'TOKEN-UJI-123';
   await go(B, 'dokkm'); ok(/tahap berikutnya \(Tahap 2\)/.test(await txt(B)), 'Menu Tahap 2 menampilkan keterangan tahap berikutnya');
   // logout
   await B.click('a[href^="logout.php"]'); await B.waitForTimeout(400); ok(/Nama pengguna/.test(await txt(B)), 'Keluar mengembalikan ke halaman masuk');
+  // reset semua sandi sementara + CSV
+  await A.reload(); await A.waitForTimeout(300); await go(A, 'pengguna');
+  const before = await A.evaluate(() => Core.S.users.filter(x => x.role !== 'admin' && x.mustChange && x.active).map(x => x.username));
+  ok(before.includes('pkm03') && !before.includes('pkm01') && !before.includes('pkm02'), 'Sasaran reset massal: hanya akun yang belum ganti sandi');
+  await A.click('[data-act=userResetAll]'); ok((await txt(A)).includes(before.length + ' akun aktif'), 'Konfirmasi reset massal menyebut jumlah akun');
+  const [dl] = await Promise.all([A.waitForEvent('download', { timeout: 15000 }).catch(() => null), (async () => { await A.click('#raOK'); await A.waitForSelector('#raCsv'); await A.click('#raCsv'); })()]);
+  const csvTxt = dl ? require('fs').readFileSync(await dl.path(), 'utf8') : '';
+  const rows = csvTxt.trim().split(/\r\n/).slice(1).map(l => l.split(',').map(c => c.replace(/^"|"$/g, '')));
+  ok(dl && dl.suggestedFilename() === 'akun-sipandu.csv' && rows.length === before.length && rows.every(r => r.length === 4 && r[3].length >= 8), 'CSV terunduh berisi ' + before.length + ' akun dengan sandi sementara baru');
+  const r3 = rows.find(r => r[2] === 'pkm03');
+  ok(r3 && (await txt(A)).includes(r3[3]), 'Daftar di layar sama dengan isi CSV');
+  const X = await newPage(); await login(X, 'pkm03', r3[3]); ok(/ganti kata sandi sementara/.test(await txt(X)), 'Sandi sementara baru dari CSV dapat dipakai masuk');
+  const Y = await newPage(); await login(Y, 'pkm01', 'Puskesmas01Baru'); ok(!/salah/.test(await txt(Y)), 'Akun yang sudah ganti sandi tidak ikut direset');
+  const nbr = await api(Y, 'user_reset_all', {}); ok(!nbr.ok, 'Selain Admin tidak bisa reset massal');
   // selftest
   const S = await newPage(); await S.goto(BASE + '/selftest.php?token=salah'); ok((await txt(S)).trim() === '403', 'Uji mandiri tanpa token ditolak');
   await S.goto(BASE + '/selftest.php?token=SELF-UJI-456'); const stt = await txt(S);

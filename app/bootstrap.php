@@ -1,8 +1,8 @@
 <?php
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.1.0-tahap1';
+const SIPANDU_VERSION = '1.1.1-tahap1';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -47,6 +47,8 @@ function sp_db(): PDO
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
+        // Nilai kolom selalu dikembalikan sebagai string di semua driver, agar perilaku di hosting (MariaDB) sama persis dengan pengujian lokal
+        PDO::ATTR_STRINGIFY_FETCHES => true,
     ]);
     if (sp_driver() === 'sqlite') $pdo->exec('PRAGMA foreign_keys = ON');
     return $pdo;

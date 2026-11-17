@@ -1,6 +1,6 @@
 <?php
 /* Si PANDU – API JSON (Tahap 1). Semua permintaan: POST, sesi masuk, token CSRF. */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/app/domain.php';
 
@@ -561,6 +561,19 @@ try {
             audit('user_reset_pw', ['id' => $t['id']]);
             $result = ['username' => $t['username'], 'password' => $pw];
             break;
+        case 'user_reset_all':
+            // Hanya akun aktif yang belum pernah mengganti sandi sementaranya; akun yang sudah punya sandi sendiri tidak disentuh
+            need($isA);
+            $result = ['accounts' => []];
+            sp_db()->beginTransaction();
+            foreach (qall("SELECT id, role, nama, username FROM users WHERE role <> 'admin' AND must_change = 1 AND aktif = 1 ORDER BY role DESC, username") as $t) {
+                $pw = temp_password();
+                q('UPDATE users SET pass_hash = ? WHERE id = ?', [password_hash($pw, PASSWORD_DEFAULT), $t['id']]);
+                $result['accounts'][] = ['role' => $t['role'], 'name' => $t['nama'], 'username' => $t['username'], 'password' => $pw];
+            }
+            sp_db()->commit();
+            audit('user_reset_all', ['n' => count($result['accounts'])]);
+            break;
         case 'pkm_add':
             need($isA);
             $nama = str_in($d, 'name', 150);
@@ -631,7 +644,7 @@ try {
             fail('galat.aksi_tidak_dikenal');
     }
     if ($isB) setup_check((int)$u['puskesmas_id']);
-    echo jenc(['ok' => true, 'data' => $result, 'state' => app_state(current_user_fresh($u['id']))]);
+    echo jenc(['ok' => true, 'data' => $result, 'state' => app_state(current_user_fresh((int)$u['id']))]);
 } catch (ApiError $e) {
     http_response_code($e->getCode() ?: 400);
     echo jenc(['ok' => false, 'error' => $e->getMessage()]);

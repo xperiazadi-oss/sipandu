@@ -1,6 +1,6 @@
 <?php
 /* Menyajikan foto personel dari folder data di luar web root, dengan pemeriksaan hak akses */
-declare(strict_types=1);
+// Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/app/domain.php';
 sp_session_start();
