@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.1.1-tahap1';
+const SIPANDU_VERSION = '1.1.2-tahap1';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -212,6 +212,17 @@ function temp_password(): string
 function valid_new_password(string $p): bool
 {
     return mb_strlen($p) >= 8 && preg_match('/[A-Za-z]/', $p) && preg_match('/\d/', $p);
+}
+
+/** Ikon mata untuk kolom kata sandi (sandi terlihat hanya selama ditekan-tahan; lihat assets/pw.js) */
+function pw_eye(): string
+{
+    $l = h(t('masuk.tahan_lihat'));
+    return '<button type="button" class="pw-eye" title="' . $l . '" aria-label="' . $l . '"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button>';
+}
+function pw_field(string $attrs): string
+{
+    return '<span class="pw"><input class="inp" type="password" ' . $attrs . '>' . pw_eye() . '</span>';
 }
 
 function h(?string $s): string

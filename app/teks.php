@@ -32,7 +32,7 @@ return [
         'gagal' => 'Nama pengguna atau kata sandi salah.', 'terkunci' => 'Terlalu banyak percobaan gagal. Coba lagi 15 menit lagi.',
         'wajib_ganti' => 'Selamat datang, {nama}. Demi keamanan, ganti kata sandi sementara sebelum melanjutkan.',
         'sandi_lama' => 'Kata sandi saat ini', 'sandi_baru' => 'Kata sandi baru', 'sandi_baru2' => 'Ulangi kata sandi baru',
-        'syarat_sandi' => 'Minimal 8 karakter, berisi huruf dan angka.', 'simpan_sandi' => 'Simpan kata sandi',
+        'syarat_sandi' => 'Minimal 8 karakter, berisi huruf dan angka.', 'simpan_sandi' => 'Simpan kata sandi', 'tahan_lihat' => 'Klik dan tahan untuk tampilkan',
     ],
     'galat' => [
         'server' => 'Terjadi gangguan di server. Coba lagi.', 'csrf' => 'Sesi formulir kedaluwarsa. Muat ulang halaman.', 'metode' => 'Metode tidak diizinkan.',

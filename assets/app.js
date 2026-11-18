@@ -18,6 +18,7 @@ var App = (function () {
   function canEditSheet(sh) { var u = C.me(); return u.role === 'binaan' && String(u.pkmId) === String(sh.pkmId) && sh.status === 'aktif'; }
   function keepScroll() { ui.keepScroll = window.scrollY; }
   function modal(html) { var bg = document.createElement('div'); bg.className = 'modal-bg'; bg.innerHTML = '<div class="modal">' + html + '</div>'; bg.addEventListener('click', function (e) { if (e.target === bg || e.target.dataset.close != null) bg.remove(); }); document.body.appendChild(bg); return bg; }
+  function pwField(id, ac) { var l = esc(t('masuk.tahan_lihat')); return '<span class="pw"><input class="inp" type="password" id="' + id + '" autocomplete="' + ac + '"><button type="button" class="pw-eye" title="' + l + '" aria-label="' + l + '"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button></span>'; }
   function call(action, data, msg, opts) {
     return C.api(action, data, opts).then(function (r) { if (msg) toast(msg); render(); return r; }, function (e) { toast(e.message, true); render(); return new Promise(function () { }); });
   }
@@ -523,7 +524,7 @@ var App = (function () {
     openNotif: function (el) { var n = C.byId(C.S.notifs, el.dataset.id); C.api('notif_read', { id: n.id }).then(function () { go(n.link || 'notif'); render(); }); },
     readAll: function () { call('notif_read_all'); },
     pwModal: function () {
-      var m = modal('<h3>' + esc(t('umum.ganti_sandi')) + '</h3><label class="f">' + esc(t('masuk.sandi_lama')) + '<input class="inp" type="password" id="pwO" autocomplete="current-password"></label><label class="f">' + esc(t('masuk.sandi_baru')) + '<input class="inp" type="password" id="pwN" autocomplete="new-password"></label><p class="small muted">' + esc(t('masuk.syarat_sandi')) + '</p><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="pwOK">' + esc(t('umum.simpan')) + '</button></div>');
+      var m = modal('<h3>' + esc(t('umum.ganti_sandi')) + '</h3><label class="f">' + esc(t('masuk.sandi_lama')) + '' + pwField('pwO', 'current-password') + '</label><label class="f">' + esc(t('masuk.sandi_baru')) + '' + pwField('pwN', 'new-password') + '</label><p class="small muted">' + esc(t('masuk.syarat_sandi')) + '</p><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="pwOK">' + esc(t('umum.simpan')) + '</button></div>');
       $('#pwOK', m).onclick = function () { C.api('password_change', { old: $('#pwO', m).value, new: $('#pwN', m).value }).then(function () { m.remove(); toast(t('umum.sandi_diganti')); }, function (e) { toast(e.message, true); }); };
     },
     newSheet: function () { call('sheet_create', { paramId: +$('#nsParam').value, alatId: +$('#nsAlat').value, lv: $('#nsLv').value }).then(function (r) { go('lembar-' + r.id); }); },

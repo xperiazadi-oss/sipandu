@@ -68,18 +68,18 @@ if (!$u || $u['must_change']) {
     if (!$u) {
         echo '<form method="post" class="grid" style="gap:10px"><input type="hidden" name="csrf" value="' . h(csrf_token()) . '"><input type="hidden" name="act" value="login">';
         echo '<label class="f">' . h(t('masuk.username')) . '<input class="inp" name="username" autocomplete="username" required autofocus></label>';
-        echo '<label class="f">' . h(t('masuk.password')) . '<input class="inp" type="password" name="password" autocomplete="current-password" required></label>';
+        echo '<label class="f">' . h(t('masuk.password')) . pw_field('name="password" autocomplete="current-password" required') . '</label>';
         echo '<button class="btn" type="submit">' . h(t('masuk.tombol')) . '</button></form>';
     } else {
         echo '<div class="note info">' . h(t('masuk.wajib_ganti', ['nama' => $u['nama']])) . '</div>';
         echo '<form method="post" class="grid" style="gap:10px"><input type="hidden" name="csrf" value="' . h(csrf_token()) . '"><input type="hidden" name="act" value="change">';
-        echo '<label class="f">' . h(t('masuk.sandi_lama')) . '<input class="inp" type="password" name="old" autocomplete="current-password" required></label>';
-        echo '<label class="f">' . h(t('masuk.sandi_baru')) . '<input class="inp" type="password" name="new" autocomplete="new-password" required></label>';
-        echo '<label class="f">' . h(t('masuk.sandi_baru2')) . '<input class="inp" type="password" name="new2" autocomplete="new-password" required></label>';
+        echo '<label class="f">' . h(t('masuk.sandi_lama')) . pw_field('name="old" autocomplete="current-password" required') . '</label>';
+        echo '<label class="f">' . h(t('masuk.sandi_baru')) . pw_field('name="new" autocomplete="new-password" required') . '</label>';
+        echo '<label class="f">' . h(t('masuk.sandi_baru2')) . pw_field('name="new2" autocomplete="new-password" required') . '</label>';
         echo '<p class="small muted">' . h(t('masuk.syarat_sandi')) . '</p><button class="btn" type="submit">' . h(t('masuk.simpan_sandi')) . '</button></form>';
         echo '<p class="small" style="margin-top:12px"><a href="logout.php?t=' . h(csrf_token()) . '">' . h(t('umum.keluar')) . '</a></p>';
     }
-    echo '</div></div></body></html>';
+    echo '</div></div><script src="assets/pw.js?v=' . SIPANDU_VERSION . '"></script></body></html>';
     exit;
 }
 
@@ -87,5 +87,5 @@ if (!$u || $u['must_change']) {
 page_head($tampil, $tampil['appName']);
 $boot = ['csrf' => csrf_token(), 'T' => sp_teks(), 'state' => app_state($u), 'version' => SIPANDU_VERSION];
 echo '<div id="app"></div><script>window.SIPANDU=' . json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_PRESERVE_ZERO_FRACTION) . ';</script>';
-foreach (['engine.js', 'client.js', 'app.js'] as $js) echo '<script src="assets/' . $js . '?v=' . SIPANDU_VERSION . '"></script>';
+foreach (['engine.js', 'client.js', 'app.js', 'pw.js'] as $js) echo '<script src="assets/' . $js . '?v=' . SIPANDU_VERSION . '"></script>';
 echo '</body></html>';

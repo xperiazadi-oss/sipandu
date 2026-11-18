@@ -37,4 +37,5 @@ node tests/diff_gen.js && php tests/diff_check.php   # 3.000 lembar acak: mesin 
 php tests/check_teks.php          # semua kunci teks ada di app/teks.php
 php tests/migrate_test.php        # migrasi skema v1 → terbaru tanpa kehilangan data
 node tests/e2e_server.js          # uji integrasi 3 peran (server PHP lokal + Chrome)
+node tests/pw_test.js             # ikon mata kata sandi (mouse, sentuh, papan ketik)
 ```
