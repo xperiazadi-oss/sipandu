@@ -17,3 +17,9 @@ RewriteRule \.(md|json|sql|lock|yml|yaml|ini|log|sh|txt)$ - [F,L]
 <FilesMatch "^(\.|composer\.|README|LICENSE)">
   Require all denied
 </FilesMatch>
+
+# Batas unggah PHP (LiteSpeed LSAPI di hosting): materi PDF maks. 10 MB, surat tugas 1 MB, foto 5 MB
+<IfModule lsapi_module>
+php_value upload_max_filesize 12M
+php_value post_max_size 16M
+</IfModule>

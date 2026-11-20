@@ -13,7 +13,7 @@ Sistem Informasi Pembinaan dan Pengendalian Mutu Labkesmas Tingkat I Kota Balikp
 | `selftest.php` | Uji mandiri server (butuh `selftest_token`) |
 | `kop.php` | Menyajikan kop dari folder data di luar web root |
 | `berkas.php` | Menyajikan surat tugas, materi PDF, dan foto narasumber (Peningkatan Kompetensi SDM) dengan pemeriksaan hak akses |
-| `php.ini` | Pengaturan PHP per direktori di hosting: batas unggah (materi PDF 10 MB) dan lokasi log |
+| `.htaccess` | Juga mengatur batas unggah PHP di hosting (materi PDF 10 MB) |
 | `foto.php` | Menyajikan foto personel (Sumber Daya Manusia) dengan pemeriksaan hak akses |
 | `app/` | Inti, skema, logika bisnis, **mesin Westgard PHP**, `teks.php` (satu-satunya file teks tampilan) |
 | `assets/` | CSS dan JavaScript antarmuka (mesin Westgard JS identik) |
