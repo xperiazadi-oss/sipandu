@@ -82,10 +82,13 @@ try {
     $role = $u['role'];
     $isB = $role === 'binaan'; $isP = $role === 'pembina'; $isA = $role === 'admin';
     if ($isB && !qval('SELECT setup_at FROM puskesmas WHERE id = ?', [$u['puskesmas_id']]) && !in_array($a, SETUP_OPEN, true)) fail('galat.setup_belum', [], 403);
+    // Fasilitator & sub-akun peserta hanya untuk menu Peningkatan Kompetensi SDM
+    if (in_array($role, ['fasil', 'peserta'], true) && !str_starts_with($a, 'bl_') && !in_array($a, ['state', 'password_change', 'notif_read', 'notif_read_all'], true)) fail('galat.tidak_berhak', [], 403);
     $own = sd_owner($u);
     $result = null;
 
-    switch ($a) {
+    if (str_starts_with($a, 'bl_')) $result = bl_api($a, $d, $u);
+    else switch ($a) {
         /* ---------- umum ---------- */
         case 'state':
             break;
@@ -361,6 +364,8 @@ try {
             $id = sp_insert('personel', ['puskesmas_id' => $own, 'nama' => $nama, 'jabatan' => str_in($d, 'jabatan', 150), 'pelatihan' => '[]', 'aktif' => 1, 'created_at' => now_str()]);
             audit('sdm_add', ['id' => $id]);
             $result = ['id' => $id];
+            // personel Puskesmas binaan langsung mendapat sub-akun; sandi sementara tampil sekali ke akun Puskesmas
+            if ($own > 0) { [, $un, $pw] = bl_sub_for_personel(q1('SELECT * FROM personel WHERE id = ?', [$id])); $result += ['username' => $un, 'password' => $pw]; }
             break;
         case 'sdm_update':
             $r = sd_own_row('personel', int_in($d, 'id'), $u);
@@ -370,10 +375,12 @@ try {
             $v = str_in($d, 'v', in_array($k, ['nip', 'strBerlaku'], true) ? 40 : 150);
             need($k !== 'name' || $v !== '', 'galat.isi_nama', 400);
             q("UPDATE personel SET {$map[$k]} = ? WHERE id = ?", [$v, $r['id']]);
+            if (in_array($k, ['name', 'nip', 'jabatan'], true)) q("UPDATE users SET " . ['name' => 'nama', 'nip' => 'nip', 'jabatan' => 'jabatan'][$k] . " = ? WHERE role = 'peserta' AND personel_id = ?", [$v, $r['id']]);
             break;
         case 'sdm_active':
             $r = sd_own_row('personel', int_in($d, 'id'), $u);
             q('UPDATE personel SET aktif = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, $r['id']]);
+            q("UPDATE users SET aktif = ? WHERE role = 'peserta' AND personel_id = ?", [!empty($d['v']) ? 1 : 0, $r['id']]);
             audit('sdm_active', ['id' => $r['id'], 'v' => !empty($d['v'])]);
             break;
         case 'sdm_train_add':
@@ -511,7 +518,7 @@ try {
         case 'user_add':
             need($isA);
             $r = (string)($d['role'] ?? '');
-            need(in_array($r, ['pembina', 'binaan'], true), 'galat.data_tidak_valid', 400);
+            need(in_array($r, ['pembina', 'binaan', 'fasil'], true), 'galat.data_tidak_valid', 400);
             $uname = strtolower(str_in($d, 'username', 40)); $nama = str_in($d, 'name', 150);
             need((bool)preg_match('/^[a-z0-9._-]{3,40}$/', $uname), 'galat.username_format', 400);
             need($nama !== '', 'galat.isi_nama', 400);

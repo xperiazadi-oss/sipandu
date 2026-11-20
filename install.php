@@ -6,6 +6,7 @@ require __DIR__ . '/app/schema.php';
 
 sp_send_security_headers();
 header('Cache-Control: no-store');
+sp_watermark();
 $cfg = sp_config();
 $token = (string)($_GET['token'] ?? $_POST['token'] ?? '');
 $okToken = !empty($cfg['install_token']) && hash_equals((string)$cfg['install_token'], $token);

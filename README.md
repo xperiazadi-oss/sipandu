@@ -12,6 +12,8 @@ Sistem Informasi Pembinaan dan Pengendalian Mutu Labkesmas Tingkat I Kota Balikp
 | `install.php` | Pemasangan awal (butuh `install_token`, terkunci setelah selesai) |
 | `selftest.php` | Uji mandiri server (butuh `selftest_token`) |
 | `kop.php` | Menyajikan kop dari folder data di luar web root |
+| `berkas.php` | Menyajikan surat tugas, materi PDF, dan foto narasumber (Peningkatan Kompetensi SDM) dengan pemeriksaan hak akses |
+| `.user.ini` | Batas unggah PHP di hosting (materi PDF 10 MB) |
 | `foto.php` | Menyajikan foto personel (Sumber Daya Manusia) dengan pemeriksaan hak akses |
 | `app/` | Inti, skema, logika bisnis, **mesin Westgard PHP**, `teks.php` (satu-satunya file teks tampilan) |
 | `assets/` | CSS dan JavaScript antarmuka (mesin Westgard JS identik) |
@@ -38,4 +40,5 @@ php tests/check_teks.php          # semua kunci teks ada di app/teks.php
 php tests/migrate_test.php        # migrasi skema v1 → terbaru tanpa kehilangan data
 node tests/e2e_server.js          # uji integrasi 3 peran (server PHP lokal + Chrome)
 node tests/pw_test.js             # ikon mata kata sandi (mouse, sentuh, papan ketik)
+node tests/bl_test.js             # Peningkatan Kompetensi SDM (jalankan setelah e2e_server.js)
 ```

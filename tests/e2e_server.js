@@ -87,12 +87,14 @@ const TOKEN = process.env.TOKEN || 'TOKEN-UJI-123';
   // ---- Binaan pkm01
   const B = await newPage();
   await firstLogin(B, 'pkm01', acc.pkm01, 'Puskesmas01Baru');
-  ok(/Lengkapi data awal/.test(await txt(B)) && !/Beranda · Puskesmas Binaan 01/.test(await txt(B)), 'Binaan setelah ganti sandi: wajib isi data awal (beranda terkunci)');
+  ok(/Lengkapi data awal/.test(await txt(B)) && !/Beranda · Puskesmas Baru Ilir/.test(await txt(B)), 'Binaan setelah ganti sandi: wajib isi data awal (beranda terkunci)');
   await go(B, 'qc'); ok(/Lengkapi data awal/.test(await txt(B)) && !(await B.locator('#nsParam').count()), 'Menu QC terkunci sebelum data awal lengkap');
-  ok(await B.locator('.nav a.lock').count() > 5 && !(await B.locator('.nav a.lock[href="#sd-sdm"]').count()) && !(await B.locator('.nav a.lock[href="#risiko"]').count()) && !(await B.locator('.nav a.lock[href="#kop"]').count()), 'Menu terbuka: Sumber Daya, Manajemen Risiko, Kop; lainnya terkunci');
+  ok(await B.locator('.nav a.lock').count() >= 3 && (await B.locator('.nav a.lock[href="#bl"]').count()) === 1 && (await B.locator('.nav a.dev').count()) >= 4 && !(await B.locator('.nav a.lock[href="#sd-sdm"]').count()) && !(await B.locator('.nav a.lock[href="#risiko"]').count()) && !(await B.locator('.nav a.lock[href="#kop"]').count()), 'Menu terbuka: Sumber Daya, Manajemen Risiko, Kop; lainnya terkunci');
   const g1 = await api(B, 'sheet_create', { paramId: 1, alatId: 1, lv: 'all' }); ok(!g1.ok && /Lengkapi dulu/.test(g1.e), 'Server menolak aksi QC sebelum data awal lengkap');
   // SDM + foto
   await go(B, 'sd-sdm'); await B.fill('#nsdN', 'Ani ATLM'); await B.fill('#nsdJ', 'Penanggung jawab lab'); await B.click('[data-act=sdmAdd]'); await B.waitForTimeout(500);
+  ok(/Sub-akun personel dibuat/.test(await B.evaluate(() => (document.querySelector('.modal') || {}).innerText || '')) && /pkm01\.ani/.test(await B.evaluate(() => document.querySelector('.modal').innerText)), 'Personel disimpan → sub-akun langsung dibuat, sandi tampil sekali');
+  await B.click('.modal [data-close]'); await B.waitForTimeout(200);
   const perId = await B.evaluate(() => location.hash.slice(8)); ok(/Ani ATLM/.test(await txt(B)) && /belum berfoto/.test(await txt(B)), 'Personel ditambahkan oleh Binaan (belum berfoto)');
   ok(!(await B.evaluate(() => Core.S.setup.sdm)), 'Langkah SDM belum selesai tanpa foto');
   await B.fill('[data-k=strNo]', 'STR-123'); await B.press('[data-k=strNo]', 'Tab'); await B.waitForTimeout(300);
@@ -129,7 +131,7 @@ const TOKEN = process.env.TOKEN || 'TOKEN-UJI-123';
   ok(await B.evaluate(() => !Core.S.setup.done && Core.S.setup.alatRiskMissing.length === 1), 'Setiap alat dipakai wajib dinilai sebelum akses penuh');
   await go(B, 'risiko-alat-' + alH); await B.click('[data-act=riskSave]'); await B.waitForTimeout(400);
   ok(await B.evaluate(() => Core.S.setup.done), 'Akses penuh setelah SDM, Alat, dan Manajemen Risiko lengkap');
-  await go(B, 'beranda'); ok(/Beranda · Puskesmas Binaan 01/.test(await txt(B)) && !(await B.locator('.nav a.lock').count()), 'Beranda & semua menu terbuka');
+  await go(B, 'beranda'); ok(/Beranda · Puskesmas Baru Ilir/.test(await txt(B)) && !(await B.locator('.nav a.lock').count()), 'Beranda & semua menu terbuka');
   // alat baru tanpa penilaian risiko: akun tidak dikunci, alat belum bisa untuk QC
   const alX = (await api(B, 'alat_add', { name: 'Fotometer Cadangan', cat: 'Kimia' })).r.id;
   ok(await B.evaluate(() => Core.S.setup.done), 'Alat baru tanpa penilaian tidak mengunci akun kembali');
@@ -215,9 +217,9 @@ const TOKEN = process.env.TOKEN || 'TOKEN-UJI-123';
   await firstLogin(P, 'pembina1', acc.pembina1, 'Pembina1Baru');
   ok(/Beranda Pembina/.test(await txt(P)), 'Pembina masuk');
   const nn = await P.evaluate(() => Core.S.notifs.map(n => n.text));
-  ok(nn.some(x => /^Tertolak – Glukosa/.test(x)) && nn.some(x => /Kasus #\d+ \(Puskesmas Binaan 01\): Binaan memilih investigasi mandiri/.test(x)), 'Pembina menerima notifikasi pelanggaran & tiap langkah kasus');
+  ok(nn.some(x => /^Tertolak – Glukosa/.test(x)) && nn.some(x => /Kasus #\d+ \(Puskesmas Baru Ilir\): Binaan memilih investigasi mandiri/.test(x)), 'Pembina menerima notifikasi pelanggaran & tiap langkah kasus');
   ok(nn.some(x => /menanggapi di lembar/.test(x)) && nn.some(x => /mengganti LOT kontrol/.test(x)), 'Pembina menerima notifikasi komentar & ganti LOT');
-  await go(P, 'pantau'); ok(/Puskesmas Binaan 01/.test(await txt(P)) && /Puskesmas Uji 28/.test(await txt(P)), 'Pantauan Binaan memuat semua Puskesmas termasuk yang baru');
+  await go(P, 'pantau'); ok(/Puskesmas Baru Ilir/.test(await txt(P)) && /Puskesmas Uji 28/.test(await txt(P)), 'Pantauan Binaan memuat semua Puskesmas termasuk yang baru');
   await go(P, 'lembar-' + sid); await P.waitForTimeout(600);
   ok(/Mohon arahan/.test(await txt(P)) && !(await P.locator('#runV0').count()), 'Pembina melihat lembar binaan (baca saja) + komentar binaan');
   await P.fill('#cmt', 'Periksa kalibrasi.'); await P.click('[data-act=sheetCmt]'); await P.waitForTimeout(500);

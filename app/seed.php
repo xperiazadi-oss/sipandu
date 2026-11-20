@@ -20,7 +20,7 @@ function sp_seed_initial(string $adminPassword): array
     }
     for ($i = 1; $i <= 27; $i++) {
         $kode = sprintf('P%02d', $i);
-        $nama = t('seed.nama_pkm', ['n' => sprintf('%02d', $i)]);
+        $nama = 'Puskesmas ' . SP_PKM_NAMA[$i - 1];
         $pid = sp_insert('puskesmas', ['kode' => $kode, 'nama' => $nama, 'aktif' => 1]);
         $pw = temp_password();
         $un = sprintf('pkm%02d', $i);

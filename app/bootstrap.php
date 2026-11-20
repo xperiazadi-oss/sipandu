@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.1.2-tahap1';
+const SIPANDU_VERSION = '1.2.0';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -131,8 +131,10 @@ function sp_installed(): bool
 function sp_ensure_schema(): void
 {
     require_once __DIR__ . '/schema.php';
-    if ((int)setting('schema_v', 1) >= SP_SCHEMA_VERSION) return;
+    $v = (int)setting('schema_v', 1);
+    if ($v >= SP_SCHEMA_VERSION) return;
     sp_migrate(sp_db(), sp_driver());
+    sp_migrate_data($v);
     set_setting('schema_v', SP_SCHEMA_VERSION);
 }
 
@@ -212,6 +214,13 @@ function temp_password(): string
 function valid_new_password(string $p): bool
 {
     return mb_strlen($p) >= 8 && preg_match('/[A-Za-z]/', $p) && preg_match('/\d/', $p);
+}
+
+/** Watermark hak cipta: disisipkan di setiap halaman HTML (pojok kanan bawah, tetap, ikut tercetak) */
+function sp_watermark(): void
+{
+    $w = '<div class="hak-cipta" style="position:fixed;right:10px;bottom:6px;z-index:40;font-size:11px;color:#16232b;opacity:.45;pointer-events:none;user-select:none;font-family:inherit">' . h(t('app.hak_cipta')) . '</div>';
+    ob_start(fn($b) => str_replace('</body></html>', $w . '</body></html>', $b));
 }
 
 /** Ikon mata untuk kolom kata sandi (sandi terlihat hanya selama ditekan-tahan; lihat assets/pw.js) */

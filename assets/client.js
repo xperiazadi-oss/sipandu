@@ -27,7 +27,7 @@ var Core = (function () {
     opts = opts || {};
     var body, headers = { 'X-CSRF-Token': CSRF };
     if (opts.form) { body = opts.form; body.append('a', action); }
-    else { body = JSON.stringify(Object.assign({ a: action }, data || {})); headers['Content-Type'] = 'application/json'; }
+    else { body = JSON.stringify(Object.assign({}, data || {}, { a: action })); headers['Content-Type'] = 'application/json'; }
     return fetch('api.php', { method: 'POST', headers: headers, body: body, credentials: 'same-origin' }).then(function (r) {
       return r.json().catch(function () { return { ok: false, error: t('galat.server') }; }).then(function (j) {
         if (r.status === 401) { location.reload(); throw new Error(j.error || ''); }

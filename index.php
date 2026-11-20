@@ -6,6 +6,7 @@ require __DIR__ . '/app/domain.php';
 
 sp_send_security_headers();
 header('Cache-Control: no-store');
+sp_watermark();
 if (!sp_installed()) {
     http_response_code(503);
     exit(h(t('galat.belum_terpasang')));
@@ -87,5 +88,5 @@ if (!$u || $u['must_change']) {
 page_head($tampil, $tampil['appName']);
 $boot = ['csrf' => csrf_token(), 'T' => sp_teks(), 'state' => app_state($u), 'version' => SIPANDU_VERSION];
 echo '<div id="app"></div><script>window.SIPANDU=' . json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_PRESERVE_ZERO_FRACTION) . ';</script>';
-foreach (['engine.js', 'client.js', 'app.js', 'pw.js'] as $js) echo '<script src="assets/' . $js . '?v=' . SIPANDU_VERSION . '"></script>';
+foreach (['engine.js', 'client.js', 'app.js', 'belajar.js', 'pw.js'] as $js) echo '<script src="assets/' . $js . '?v=' . SIPANDU_VERSION . '"></script>';
 echo '</body></html>';
