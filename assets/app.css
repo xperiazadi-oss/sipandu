@@ -107,3 +107,11 @@ select.cell:disabled,input.cell:disabled{color:inherit}
 .congrats{font-size:1.05rem}
 .hak-cipta{text-shadow:0 0 2px #fff}
 @media print{.hak-cipta{display:block!important;position:fixed}}
+/* Pengawas: kartu timeline sesuai rundown */
+.timeline{position:relative;margin-left:10px;padding-left:22px;border-left:2px solid var(--line)}
+.tl-item{position:relative;margin-bottom:12px}
+.tl-item .tl-dot{position:absolute;left:-31px;top:16px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--line)}
+.tl-item.buka .tl-dot{border-color:var(--ok);background:var(--ok)}
+.tl-item.tutup .tl-dot{border-color:var(--pri);background:var(--pri)}
+.tl-item.buka>.card{border-color:var(--ok);box-shadow:0 0 0 2px var(--ok-bg)}
+.bar{height:6px;border-radius:3px;background:#edf2f4;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--pri)}

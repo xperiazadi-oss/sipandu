@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.2.0';
+const SIPANDU_VERSION = '1.3.0';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -16,6 +16,28 @@ function sp_config(): array
     }
     $cfg = require $path;
     return $cfg;
+}
+
+/** Aplikasi yang sedang dilayani: 'sp' (Si PANDU) atau 'bl' (subdomain pembelajaran belajar.*). Akun, sesi, dan log keduanya terpisah. */
+function sp_app(): string
+{
+    static $a = null;
+    if ($a !== null) return $a;
+    $env = getenv('SIPANDU_APP');
+    if ($env === 'bl' || $env === 'sp') return $a = $env;
+    return $a = str_starts_with(strtolower((string)($_SERVER['HTTP_HOST'] ?? '')), 'belajar.') ? 'bl' : 'sp';
+}
+function sp_users_table(): string
+{
+    return sp_app() === 'bl' ? 'bl_users' : 'users';
+}
+/** Alamat subdomain pembelajaran (dapat diatur dengan 'bl_url' di konfigurasi) */
+function bl_url(): string
+{
+    $c = sp_config();
+    if (!empty($c['bl_url'])) return (string)$c['bl_url'];
+    $host = (string)preg_replace('/^www\./', '', strtolower((string)($_SERVER['HTTP_HOST'] ?? '')));
+    return 'https://belajar.' . $host . '/';
 }
 
 function sp_teks(): array
@@ -133,9 +155,19 @@ function sp_ensure_schema(): void
     require_once __DIR__ . '/schema.php';
     $v = (int)setting('schema_v', 1);
     if ($v >= SP_SCHEMA_VERSION) return;
-    sp_migrate(sp_db(), sp_driver());
-    sp_migrate_data($v);
-    set_setting('schema_v', SP_SCHEMA_VERSION);
+    // satu proses saja yang menjalankan migrasi (permintaan bersamaan menunggu, lalu membaca ulang versinya)
+    $my = sp_driver() === 'mysql';
+    if ($my && !(int)qval("SELECT GET_LOCK('sipandu_migrasi', 30)")) return;
+    try {
+        $v = (int)setting('schema_v', 1);
+        if ($v >= SP_SCHEMA_VERSION) return;
+        sp_migrate_pre($v);
+        sp_migrate(sp_db(), sp_driver());
+        sp_migrate_data($v);
+        set_setting('schema_v', SP_SCHEMA_VERSION);
+    } finally {
+        if ($my) qval("SELECT RELEASE_LOCK('sipandu_migrasi')");
+    }
 }
 
 /* ---------- Sesi & keamanan ---------- */
@@ -146,7 +178,7 @@ function sp_https(): bool
 function sp_session_start(): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) return;
-    session_name('SIPANDUSESS');
+    session_name(sp_app() === 'bl' ? 'SPBELAJARSESS' : 'SIPANDUSESS');
     session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'secure' => sp_https(), 'httponly' => true, 'samesite' => 'Lax']);
     session_start();
     $idle = 2 * 3600;
@@ -178,7 +210,7 @@ function current_user(): ?array
     static $u = false;
     if ($u !== false) return $u;
     $id = (int)($_SESSION['uid'] ?? 0);
-    $u = $id ? q1('SELECT * FROM users WHERE id = ? AND aktif = 1', [$id]) : null;
+    $u = $id ? q1('SELECT * FROM ' . sp_users_table() . ' WHERE id = ? AND aktif = 1', [$id]) : null;
     return $u;
 }
 function client_ip(): string
@@ -188,12 +220,18 @@ function client_ip(): string
 function audit(string $action, $detail = null): void
 {
     $u = current_user();
-    sp_insert('audit_log', ['at' => now_str(), 'user_id' => $u['id'] ?? null, 'action' => $action, 'detail' => $detail === null ? null : (is_string($detail) ? $detail : jenc($detail)), 'ip' => client_ip()]);
+    sp_insert(sp_app() === 'bl' ? 'bl_audit' : 'audit_log', ['at' => now_str(), 'user_id' => $u['id'] ?? null, 'action' => $action, 'detail' => $detail === null ? null : (is_string($detail) ? $detail : jenc($detail)), 'ip' => client_ip()]);
 }
 
 /* Pembatasan percobaan masuk dalam 15 menit: 5 gagal per nama pengguna, 20 gagal per IP */
+function login_key(string $username): string
+{
+    // nama pengguna subdomain pembelajaran dicatat dengan awalan agar tidak tercampur dengan akun Si PANDU
+    return sp_app() === 'bl' ? 'bl:' . $username : $username;
+}
 function login_locked(string $username): bool
 {
+    $username = login_key($username);
     $since = (new DateTimeImmutable('-15 minutes', new DateTimeZone('Asia/Makassar')))->format('Y-m-d H:i:s');
     // per nama pengguna: 5 gagal; per IP: 20 gagal (satu kantor bisa berbagi IP)
     $byUser = (int)qval('SELECT COUNT(*) FROM login_attempts WHERE ok = 0 AND at >= ? AND username = ?', [$since, $username]);
@@ -202,6 +240,7 @@ function login_locked(string $username): bool
 }
 function login_record(string $username, bool $ok): void
 {
+    $username = login_key($username);
     sp_insert('login_attempts', ['username' => $username, 'ip' => client_ip(), 'at' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Makassar')))->format('Y-m-d H:i:s'), 'ok' => $ok ? 1 : 0]);
 }
 function temp_password(): string

@@ -2,6 +2,7 @@
 /* Si PANDU – halaman masuk, ganti kata sandi wajib, dan kerangka aplikasi */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
+if (sp_app() === 'bl') { require __DIR__ . '/app/bl_web.php'; bl_page_index(); exit; }   // subdomain pembelajaran
 require __DIR__ . '/app/domain.php';
 
 sp_send_security_headers();
@@ -88,5 +89,5 @@ if (!$u || $u['must_change']) {
 page_head($tampil, $tampil['appName']);
 $boot = ['csrf' => csrf_token(), 'T' => sp_teks(), 'state' => app_state($u), 'version' => SIPANDU_VERSION];
 echo '<div id="app"></div><script>window.SIPANDU=' . json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_PRESERVE_ZERO_FRACTION) . ';</script>';
-foreach (['engine.js', 'client.js', 'app.js', 'belajar.js', 'pw.js'] as $js) echo '<script src="assets/' . $js . '?v=' . SIPANDU_VERSION . '"></script>';
+foreach (['engine.js', 'client.js', 'app.js', 'pw.js'] as $js) echo '<script src="assets/' . $js . '?v=' . SIPANDU_VERSION . '"></script>';
 echo '</body></html>';

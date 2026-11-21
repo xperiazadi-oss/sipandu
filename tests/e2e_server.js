@@ -89,12 +89,11 @@ const TOKEN = process.env.TOKEN || 'TOKEN-UJI-123';
   await firstLogin(B, 'pkm01', acc.pkm01, 'Puskesmas01Baru');
   ok(/Lengkapi data awal/.test(await txt(B)) && !/Beranda · Puskesmas Baru Ilir/.test(await txt(B)), 'Binaan setelah ganti sandi: wajib isi data awal (beranda terkunci)');
   await go(B, 'qc'); ok(/Lengkapi data awal/.test(await txt(B)) && !(await B.locator('#nsParam').count()), 'Menu QC terkunci sebelum data awal lengkap');
-  ok(await B.locator('.nav a.lock').count() >= 3 && (await B.locator('.nav a.lock[href="#bl"]').count()) === 1 && (await B.locator('.nav a.dev').count()) >= 4 && !(await B.locator('.nav a.lock[href="#sd-sdm"]').count()) && !(await B.locator('.nav a.lock[href="#risiko"]').count()) && !(await B.locator('.nav a.lock[href="#kop"]').count()), 'Menu terbuka: Sumber Daya, Manajemen Risiko, Kop; lainnya terkunci');
+  ok(await B.locator('.nav a.lock').count() >= 3 && (await B.locator('.nav a[href="' + (process.env.BL_URL || 'http://127.0.0.1:8098/') + '"]:not(.lock)').count()) === 1 && (await B.locator('.nav a.dev').count()) >= 4 && !(await B.locator('.nav a.lock[href="#sd-sdm"]').count()) && !(await B.locator('.nav a.lock[href="#risiko"]').count()) && !(await B.locator('.nav a.lock[href="#kop"]').count()), 'Menu terbuka: Sumber Daya, Manajemen Risiko, Kop; lainnya terkunci');
   const g1 = await api(B, 'sheet_create', { paramId: 1, alatId: 1, lv: 'all' }); ok(!g1.ok && /Lengkapi dulu/.test(g1.e), 'Server menolak aksi QC sebelum data awal lengkap');
   // SDM + foto
   await go(B, 'sd-sdm'); await B.fill('#nsdN', 'Ani ATLM'); await B.fill('#nsdJ', 'Penanggung jawab lab'); await B.click('[data-act=sdmAdd]'); await B.waitForTimeout(500);
-  ok(/Sub-akun personel dibuat/.test(await B.evaluate(() => (document.querySelector('.modal') || {}).innerText || '')) && /pkm01\.ani/.test(await B.evaluate(() => document.querySelector('.modal').innerText)), 'Personel disimpan → sub-akun langsung dibuat, sandi tampil sekali');
-  await B.click('.modal [data-close]'); await B.waitForTimeout(200);
+  ok(!(await B.locator('.modal').count()), 'Personel disimpan tanpa sub-akun (pembelajaran memakai akun subdomain sendiri)');
   const perId = await B.evaluate(() => location.hash.slice(8)); ok(/Ani ATLM/.test(await txt(B)) && /belum berfoto/.test(await txt(B)), 'Personel ditambahkan oleh Binaan (belum berfoto)');
   ok(!(await B.evaluate(() => Core.S.setup.sdm)), 'Langkah SDM belum selesai tanpa foto');
   await B.fill('[data-k=strNo]', 'STR-123'); await B.press('[data-k=strNo]', 'Tab'); await B.waitForTimeout(300);

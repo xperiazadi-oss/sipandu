@@ -2,38 +2,15 @@
 /* Si PANDU – API JSON (Tahap 1). Semua permintaan: POST, sesi masuk, token CSRF. */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
+if (sp_app() === 'bl') { require __DIR__ . '/app/bl_web.php'; bl_page_api(); exit; }   // subdomain pembelajaran
 require __DIR__ . '/app/domain.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 sp_send_security_headers();
 
-final class ApiError extends Exception {}
-function fail(string $key, array $vars = [], int $code = 400): never
-{
-    throw new ApiError(t($key, $vars), $code);
-}
-function need(bool $cond, string $key = 'galat.tidak_berhak', int $code = 403): void
-{
-    if (!$cond) fail($key, [], $code);
-}
-function str_in(array $d, string $k, int $max = 500): string
-{
-    $v = trim((string)($d[$k] ?? ''));
-    return mb_substr($v, 0, $max);
-}
-function int_in(array $d, string $k): int
-{
-    return (int)($d[$k] ?? 0);
-}
-/** Tanggal opsional: '' atau YYYY-MM-DD yang valid */
-function date_in(array $d, string $k): string
-{
-    $v = trim((string)($d[$k] ?? ''));
-    if ($v === '') return '';
-    need((bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) && checkdate((int)substr($v, 5, 2), (int)substr($v, 8, 2), (int)substr($v, 0, 4)), 'galat.tanggal', 400);
-    return $v;
-}
+require __DIR__ . '/app/apihelp.php';
+
 /** Baris Sumber Daya milik akun ini (untuk diubah) */
 function sd_own_row(string $table, int $id, array $u): array
 {
@@ -42,26 +19,6 @@ function sd_own_row(string $table, int $id, array $u): array
     $own = sd_owner($u);
     need($own !== null && (int)$r['puskesmas_id'] === $own);
     return $r;
-}
-/** Gambar unggahan → kanvas tetap (contain, latar putih, tanpa potong/distorsi) */
-function fit_image(string $raw, int $W, int $H, bool $fixOrientation)
-{
-    $src = @imagecreatefromstring($raw);
-    need($src !== false, 'galat.bukan_gambar', 400);
-    if ($fixOrientation && function_exists('exif_read_data')) {
-        $ex = @exif_read_data('data://image/jpeg;base64,' . base64_encode($raw));
-        $o = (int)($ex['Orientation'] ?? 1);
-        $ang = [3 => 180, 6 => 270, 8 => 90][$o] ?? 0;
-        if ($ang) { $r = imagerotate($src, $ang, 0); if ($r) { imagedestroy($src); $src = $r; } }
-    }
-    $dst = imagecreatetruecolor($W, $H);
-    imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
-    $ow = imagesx($src); $oh = imagesy($src);
-    $sc = min($W / $ow, $H / $oh);
-    $w = (int)round($ow * $sc); $hh = (int)round($oh * $sc);
-    imagecopyresampled($dst, $src, (int)(($W - $w) / 2), (int)(($H - $hh) / 2), 0, 0, $w, $hh, $ow, $oh);
-    imagedestroy($src);
-    return [$dst, $ow, $oh, $sc];
 }
 /** Aksi yang tetap terbuka bagi Binaan sebelum alur wajib selesai */
 const SETUP_OPEN = ['state', 'password_change', 'notif_read', 'notif_read_all', 'sdm_add', 'sdm_update', 'sdm_active', 'sdm_train_add', 'sdm_train_del', 'sdm_foto',
@@ -82,13 +39,10 @@ try {
     $role = $u['role'];
     $isB = $role === 'binaan'; $isP = $role === 'pembina'; $isA = $role === 'admin';
     if ($isB && !qval('SELECT setup_at FROM puskesmas WHERE id = ?', [$u['puskesmas_id']]) && !in_array($a, SETUP_OPEN, true)) fail('galat.setup_belum', [], 403);
-    // Fasilitator & sub-akun peserta hanya untuk menu Peningkatan Kompetensi SDM
-    if (in_array($role, ['fasil', 'peserta'], true) && !str_starts_with($a, 'bl_') && !in_array($a, ['state', 'password_change', 'notif_read', 'notif_read_all'], true)) fail('galat.tidak_berhak', [], 403);
     $own = sd_owner($u);
     $result = null;
 
-    if (str_starts_with($a, 'bl_')) $result = bl_api($a, $d, $u);
-    else switch ($a) {
+    switch ($a) {
         /* ---------- umum ---------- */
         case 'state':
             break;
@@ -364,8 +318,6 @@ try {
             $id = sp_insert('personel', ['puskesmas_id' => $own, 'nama' => $nama, 'jabatan' => str_in($d, 'jabatan', 150), 'pelatihan' => '[]', 'aktif' => 1, 'created_at' => now_str()]);
             audit('sdm_add', ['id' => $id]);
             $result = ['id' => $id];
-            // personel Puskesmas binaan langsung mendapat sub-akun; sandi sementara tampil sekali ke akun Puskesmas
-            if ($own > 0) { [, $un, $pw] = bl_sub_for_personel(q1('SELECT * FROM personel WHERE id = ?', [$id])); $result += ['username' => $un, 'password' => $pw]; }
             break;
         case 'sdm_update':
             $r = sd_own_row('personel', int_in($d, 'id'), $u);
@@ -375,12 +327,10 @@ try {
             $v = str_in($d, 'v', in_array($k, ['nip', 'strBerlaku'], true) ? 40 : 150);
             need($k !== 'name' || $v !== '', 'galat.isi_nama', 400);
             q("UPDATE personel SET {$map[$k]} = ? WHERE id = ?", [$v, $r['id']]);
-            if (in_array($k, ['name', 'nip', 'jabatan'], true)) q("UPDATE users SET " . ['name' => 'nama', 'nip' => 'nip', 'jabatan' => 'jabatan'][$k] . " = ? WHERE role = 'peserta' AND personel_id = ?", [$v, $r['id']]);
             break;
         case 'sdm_active':
             $r = sd_own_row('personel', int_in($d, 'id'), $u);
             q('UPDATE personel SET aktif = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, $r['id']]);
-            q("UPDATE users SET aktif = ? WHERE role = 'peserta' AND personel_id = ?", [!empty($d['v']) ? 1 : 0, $r['id']]);
             audit('sdm_active', ['id' => $r['id'], 'v' => !empty($d['v'])]);
             break;
         case 'sdm_train_add':
@@ -518,7 +468,7 @@ try {
         case 'user_add':
             need($isA);
             $r = (string)($d['role'] ?? '');
-            need(in_array($r, ['pembina', 'binaan', 'fasil'], true), 'galat.data_tidak_valid', 400);
+            need(in_array($r, ['pembina', 'binaan'], true), 'galat.data_tidak_valid', 400);
             $uname = strtolower(str_in($d, 'username', 40)); $nama = str_in($d, 'name', 150);
             need((bool)preg_match('/^[a-z0-9._-]{3,40}$/', $uname), 'galat.username_format', 400);
             need($nama !== '', 'galat.isi_nama', 400);

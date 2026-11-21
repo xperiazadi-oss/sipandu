@@ -1,4 +1,4 @@
-/* Si PANDU – Peningkatan Kompetensi SDM (pembelajaran). Semua teks tampilan dari app/teks.php (kunci bl.*). */
+/* Subdomain pembelajaran (Si PANDU – Peningkatan Kapasitas Kompetensi SDM). Semua teks tampilan dari app/teks.php (kunci bl.* dan blapp.*). */
 (function () {
   'use strict';
   var C = Core, H = App.h, esc = C.esc, t = C.t, $ = H.$, ui = H.ui;
@@ -40,6 +40,8 @@
     if (poll) { clearInterval(poll); poll = null; }
     if (!arg) return listPage();
     if (arg === 'profil') return profilPage();
+    if (arg === 'pengguna') return penggunaPage();
+    if (arg === 'riwayat') return riwayatPage();
     var p = arg.split('-'), id = p[0];
     if (!/^\d+$/.test(id)) return H.denied();
     var d = cache[id];
@@ -50,31 +52,41 @@
       if (!(p[1] && p[1].charAt(0) === 's')) poll = setInterval(function () { if (H.route() === 'bl-' + id && !document.querySelector('.modal-bg')) load(id).then(function () { H.keepScroll(); App.render(); }); }, 30000);
       return p[1] && p[1].charAt(0) === 's' ? pesertaSeg(d, p[1].slice(1)) : pesertaHome(d);
     }
-    if (r === 'binaan') return binaanPage(d);
+    if (r === 'pengawas') {
+      poll = setInterval(function () { if (H.route() === 'bl-' + id && !document.querySelector('.modal-bg')) load(id).then(function () { H.keepScroll(); App.render(); }); }, 30000);
+      return pengawasPage(d);
+    }
     return staffPage(d);
   });
 
   function head(k) {
-    return '<div class="small"><a href="#bl">← ' + esc(t('menu.bl')) + '</a></div><div class="row"><h2 class="sp">' + esc(k.title) + '</h2>' + chipStatus('keg', k.status) + '</div>' +
+    return '<div class="small"><a href="#bl">← ' + esc(t('blapp.menu_kegiatan')) + '</a></div><div class="row"><h2 class="sp">' + esc(k.title) + '</h2>' + chipStatus('keg', k.status) + '</div>' +
       '<p class="muted">' + esc([k.org, k.place, [k.start, k.end].filter(Boolean).join(' s.d. ')].filter(Boolean).join(' · ')) + '</p>' + (k.desc ? '<p style="white-space:pre-line">' + esc(k.desc) + '</p>' : '');
   }
 
   /* daftar kegiatan */
   function listPage() {
     var r = me().role, list = C.S.bl || [];
-    var h = '<h2>' + esc(t('menu.bl')) + '</h2><p class="muted">' + esc(t('bl.pengantar')) + '</p>';
-    if (r === 'admin') h += '<div class="card"><h3>' + esc(t('bl.keg_baru')) + '</h3><div class="form"><label class="f">' + esc(t('bl.judul')) + '<input class="inp" id="bkT"></label><label class="f">' + esc(t('bl.penyelenggara')) + '<input class="inp" id="bkO" placeholder="' + esc(t('bl.ph_penyelenggara')) + '"></label><div><button class="btn" data-act="blKegAdd">' + esc(t('bl.buat')) + '</button></div></div></div>';
+    var h = '<h2>' + esc(t('blapp.menu_kegiatan')) + '</h2><p class="muted">' + esc(t('bl.pengantar')) + '</p>';
+    if (r === 'admin') h += '<div class="card"><h3>' + esc(t('bl.keg_baru')) + '</h3><div class="form"><label class="f">' + esc(t('bl.judul')) + '<input class="inp" id="bkT"></label><label class="f">' + esc(t('bl.penyelenggara')) + '<input class="inp" id="bkO" placeholder="' + esc(t('bl.ph_penyelenggara')) + '"></label><label class="f">' + esc(t('bl.kuota')) + '<input class="inp" type="number" min="1" id="bkK"></label><div><button class="btn" data-act="blKegAdd">' + esc(t('bl.buat')) + '</button></div></div><p class="small muted">' + esc(t('bl.kuota_ket')) + '</p></div>';
     if (r === 'pembina' || r === 'fasil') h += '<p><a class="btn o s" href="#bl-profil">' + esc(t('menu.bl_profil')) + '</a></p>';
     if (!list.length) return h + '<p class="muted">' + esc(t(r === 'peserta' ? 'bl.belum_ada_peserta' : 'bl.belum_ada')) + '</p>';
-    if (r === 'binaan' || r === 'peserta') return h + '<div class="grid g2">' + list.map(function (k) {
-      var mine = k.mine || [], st = '';
-      if (r === 'binaan') st = mine.length ? t('bl.n_terdaftar', { n: mine.length }) : (k.open ? t('bl.pendaftaran_dibuka') : t('bl.pendaftaran_ditutup'));
-      if (r === 'peserta') st = k.myStatus ? t('bl.st_pes.' + k.myStatus) : (k.open ? t('bl.pendaftaran_dibuka') : t('bl.pendaftaran_ditutup'));
+    if (r === 'peserta' || r === 'pengawas') return h + '<div class="grid g2">' + list.map(function (k) {
+      var st = '';
+      if (r === 'peserta') st = k.myStatus ? t('bl.st_pes.' + k.myStatus) : formState(k);
+      if (r === 'pengawas') st = t('bl.n_peserta_diterima', { n: k.nPeserta });
       return '<div class="card"><div class="row"><h3 class="sp">' + esc(k.title) + '</h3>' + (k.status === 'arsip' ? chipStatus('keg', 'arsip') : '') + '</div><p class="small muted">' + esc([k.org, [k.start, k.end].filter(Boolean).join(' s.d. ')].filter(Boolean).join(' · ')) + '</p>' + (st ? '<p class="small">' + esc(st) + '</p>' : '') + '<a class="btn s" href="#bl-' + k.id + '">' + esc(t('bl.buka')) + '</a></div>';
     }).join('') + '</div>';
-    return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.judul')) + '</th><th>' + esc(t('bl.penyelenggara')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.status')) + '</th><th>' + esc(t('bl.pendaftaran')) + '</th><th class="num">' + esc(t('bl.peserta')) + '</th></tr>' + list.map(function (k) {
-      return '<tr><td><a href="#bl-' + k.id + '"><b>' + esc(k.title) + '</b></a>' + (k.nWaiting ? ' ' + H.chip(t('bl.n_menunggu', { n: k.nWaiting }), 'warn') : '') + '</td><td>' + esc(k.org) + '</td><td>' + esc([k.start, k.end].filter(Boolean).join(' s.d. ')) + '</td><td>' + chipStatus('keg', k.status) + '</td><td>' + esc(t(k.open ? 'bl.dibuka' : 'bl.ditutup')) + '</td><td class="num">' + k.nPeserta + '</td></tr>';
+    return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.judul')) + '</th><th>' + esc(t('bl.penyelenggara')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.status')) + '</th><th>' + esc(t('bl.pendaftaran')) + '</th><th class="num">' + esc(t('bl.kuota_terisi')) + '</th><th class="num">' + esc(t('bl.peserta')) + '</th></tr>' + list.map(function (k) {
+      return '<tr><td><a href="#bl-' + k.id + '"><b>' + esc(k.title) + '</b></a>' + (k.nWaiting ? ' ' + H.chip(t('bl.n_menunggu', { n: k.nWaiting }), 'warn') : '') + '</td><td>' + esc(k.org) + '</td><td>' + esc([k.start, k.end].filter(Boolean).join(' s.d. ')) + '</td><td>' + chipStatus('keg', k.status) + '</td><td>' + esc(t(k.open ? 'bl.dibuka' : 'bl.ditutup')) + '</td><td class="num">' + k.terisi + ' / ' + k.kuota + '</td><td class="num">' + k.nPeserta + '</td></tr>';
     }).join('') + '</table></div>';
+  }
+
+  /* keadaan formulir pendaftaran untuk peserta */
+  function formState(k) {
+    if (k.formOpen) return t('bl.pendaftaran_dibuka_sisa', { n: k.kuota - k.terisi });
+    if (k.status === 'terbit' && k.open && k.terisi >= k.kuota) return t('bl.kuota_penuh');
+    return t('bl.pendaftaran_ditutup');
   }
 
   /* profil narasumber (Pembina/Fasilitator) */
@@ -82,7 +94,7 @@
     var r = me().role; if (r !== 'pembina' && r !== 'fasil') return H.denied();
     var p = ui.blProfil;
     if (!p) { C.api('bl_get_profil', {}).then(function (x) { ui.blProfil = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
-    return '<div class="small"><a href="#bl">← ' + esc(t('menu.bl')) + '</a></div><h2>' + esc(t('menu.bl_profil')) + '</h2><p class="muted">' + esc(t('bl.profil_ket')) + '</p><div class="grid g2" style="grid-template-columns:220px 1fr;align-items:start"><div class="card">' + fotoNarsum(p, 180) +
+    return '<div class="small"><a href="#bl">← ' + esc(t('blapp.menu_kegiatan')) + '</a></div><h2>' + esc(t('menu.bl_profil')) + '</h2><p class="muted">' + esc(t('bl.profil_ket')) + '</p><div class="grid g2" style="grid-template-columns:220px 1fr;align-items:start"><div class="card">' + fotoNarsum(p, 180) +
       '<label class="f" style="margin-top:8px">' + esc(t('bl.unggah_foto')) + '<input type="file" id="blFoto" accept="image/jpeg,image/png"></label><p class="small muted">' + esc(t('sd.foto_ket')) + '</p></div><div class="card"><div class="form"><label class="f">' + esc(t('bl.nama')) + '<input class="inp" disabled value="' + esc(p.name) + '"></label><label class="f">' + esc(t('bl.jabatan_narsum')) + '<input class="inp" id="bpJ" value="' + esc(p.jabatan) + '"></label><label class="f">' + esc(t('bl.instansi')) + '<input class="inp" id="bpI" value="' + esc(p.instansi) + '"></label><label class="f" style="grid-column:1/-1">' + esc(t('bl.ringkasan')) + '<textarea class="inp" id="bpR" rows="5">' + esc(p.ringkasan) + '</textarea></label><div><button class="btn" data-act="blProfilSave">' + esc(t('umum.simpan')) + '</button></div></div></div></div>';
   }
 
@@ -105,8 +117,8 @@
   function tabAtur(d) {
     var k = d.keg, ed = k.status !== 'arsip';
     var fld = function (key, label, type) { return '<label class="f">' + esc(t(label)) + '<input class="inp" ' + (type ? 'type="' + type + '" ' : '') + 'data-blk="' + key + '" value="' + esc(k[key]) + '"' + (ed ? '' : ' disabled') + '></label>'; };
-    var h = '<div class="card"><h3>' + esc(t('bl.detail')) + '</h3><div class="form">' + fld('title', 'bl.judul') + fld('org', 'bl.penyelenggara') + fld('place', 'bl.lokasi') + fld('start', 'bl.tgl_mulai', 'date') + fld('end', 'bl.tgl_selesai', 'date') +
-      '<label class="f" style="grid-column:1/-1">' + esc(t('bl.deskripsi')) + '<textarea class="inp" rows="3" data-blk="desc"' + (ed ? '' : ' disabled') + '>' + esc(k.desc) + '</textarea></label></div></div>';
+    var h = '<div class="card"><h3>' + esc(t('bl.detail')) + '</h3><div class="form">' + fld('title', 'bl.judul') + fld('org', 'bl.penyelenggara') + fld('place', 'bl.lokasi') + fld('start', 'bl.tgl_mulai', 'date') + fld('end', 'bl.tgl_selesai', 'date') + fld('kuota', 'bl.kuota', 'number') +
+      '<label class="f" style="grid-column:1/-1">' + esc(t('bl.deskripsi')) + '<textarea class="inp" rows="3" data-blk="desc"' + (ed ? '' : ' disabled') + '>' + esc(k.desc) + '</textarea></label></div><p class="small muted">' + esc(t('bl.kuota_info', { terisi: k.terisi, kuota: k.kuota })) + '</p></div>';
     h += '<div class="card"><h3>' + esc(t('bl.status')) + '</h3><div class="row">' + chipStatus('keg', k.status) + '<span class="sp"></span>' +
       (k.status === 'draf' ? '<button class="btn" data-act="blKegStatus" data-v="terbit">' + esc(t('bl.terbitkan')) + '</button>' : '') +
       (k.status === 'terbit' ? '<label class="small"><input type="checkbox" data-act="blDaftar" ' + (k.open ? 'checked' : '') + '> ' + esc(t('bl.pendaftaran_dibuka_cek')) + '</label>' + (!(d.peserta || []).length ? '<button class="btn o s" data-act="blKegStatus" data-v="draf">' + esc(t('bl.kembali_draf')) + '</button>' : '') + '<button class="btn o s" data-act="blArsip">' + esc(t('bl.arsipkan')) + '</button>' : '') +
@@ -115,11 +127,12 @@
     var checks = function (key, roles) {
       var cur = k[key];
       var us = users.filter(function (x) { return roles.indexOf(x.role) >= 0; });
-      if (!us.length) return '<p class="small muted">' + esc(t(key === 'fasil' ? 'bl.belum_ada_fasil' : 'bl.belum_ada_pembuka')) + '</p>';
+      if (!us.length) return '<p class="small muted">' + esc(t({ fasil: 'bl.belum_ada_fasil', pembuka: 'bl.belum_ada_pembuka', pengawas: 'bl.belum_ada_pengawas' }[key])) + '</p>';
       return '<div class="row">' + us.map(function (x) { return '<label class="small" style="min-width:220px"><input type="checkbox" data-blpeople="' + key + '" value="' + x.id + '" ' + (cur.indexOf(x.id) >= 0 ? 'checked ' : '') + (ed ? '' : 'disabled') + '> ' + esc(x.name) + ' <span class="muted">(' + esc(t('peran.' + x.role)) + (x.active ? '' : ', ' + t('bl.nonaktif')) + ')</span></label>'; }).join('') + '</div>';
     };
     h += '<div class="grid g2"><div class="card"><h3>' + esc(t('bl.fasilitator')) + '</h3><p class="small muted">' + esc(t('bl.fasilitator_ket')) + '</p>' + checks('fasil', ['fasil']) + '</div><div class="card"><h3>' + esc(t('bl.pembuka')) + '</h3><p class="small muted">' + esc(t('bl.pembuka_ket')) + '</p>' + checks('pembuka', ['pembina', 'fasil']) + '</div></div>';
-    var picOpts = function (s) { return H.opt('', t('bl.pic_lain')) + users.map(function (x) { return H.opt(x.id, x.name + ' (' + t('peran.' + x.role) + ')', String(x.id) === String(s.picId)); }).join(''); };
+    h += '<div class="card"><h3>' + esc(t('bl.pengawas')) + '</h3><p class="small muted">' + esc(t('bl.pengawas_ket')) + '</p>' + checks('pengawas', ['pengawas']) + '</div>';
+    var picOpts = function (s) { return H.opt('', t('bl.pic_lain')) + users.filter(function (x) { return x.role !== 'pengawas'; }).map(function (x) { return H.opt(x.id, x.name + ' (' + t('peran.' + x.role) + ')', String(x.id) === String(s.picId)); }).join(''); };
     h += '<div class="card"><h3>' + esc(t('bl.segmen')) + '</h3><p class="small muted">' + esc(t('bl.segmen_ket')) + '</p><div class="tbl"><table><tr><th>#</th><th>' + esc(t('bl.jenis')) + '</th><th>' + esc(t('bl.judul_segmen')) + '</th><th>' + esc(t('bl.pic')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.jam_mulai')) + '</th><th>' + esc(t('bl.jam_selesai')) + '</th><th>' + esc(t('bl.status')) + '</th><th></th></tr>' + d.segs.map(function (s, i) {
       var mv = ['materi', 'praktik'].indexOf(s.jenis) >= 0 && ed;
       var inp = function (key, type, w) { return '<td class="in"><input class="cell" style="min-width:' + (w || 90) + 'px" ' + (type ? 'type="' + type + '" ' : '') + 'data-blseg="' + s.id + '" data-k="' + key + '" value="' + esc(s[key]) + '"' + (ed ? '' : ' disabled') + '></td>'; };
@@ -143,8 +156,8 @@
     if (!ps.length) return '<p class="muted">' + esc(t('bl.belum_ada_pendaftar')) + '</p>';
     var order = { menunggu: 0, lengkapi: 1, diterima: 2, ditolak: 3 };
     ps = ps.slice().sort(function (a, b) { return order[a.status] - order[b.status]; });
-    return '<p class="small muted">' + esc(t('bl.verif_ket')) + '</p><div class="tbl"><table><tr><th>' + esc(t('bl.puskesmas')) + '</th><th>' + esc(t('bl.nama_gelar')) + '</th><th>' + esc(t('bl.jabatan')) + '</th><th>' + esc(t('bl.nip')) + '</th><th>' + esc(t('bl.surat_tugas')) + '</th><th>' + esc(t('bl.dikirim')) + '</th><th>' + esc(t('bl.status')) + '</th><th></th></tr>' + ps.map(function (p) {
-      return '<tr><td>' + esc(C.pkm(p.pkmId).name) + '</td><td><b>' + esc(p.name) + '</b>' + (p.username ? '<div class="small"><code>' + esc(p.username) + '</code></div>' : '') + '</td><td>' + esc(p.jabatan) + '</td><td>' + esc(p.nip) + '</td><td>' + (p.hasSurat ? '<a href="berkas.php?j=surat&id=' + p.id + '" target="_blank" rel="noopener">' + esc(t('bl.lihat_pdf')) + '</a>' : '–') + '</td><td class="small">' + dt(p.sentAt) + '</td><td>' + chipStatus('pes', p.status) + (p.msg ? '<div class="small muted" style="white-space:pre-line">' + esc(p.msg) + '</div>' : '') + '</td><td style="white-space:nowrap">' +
+    return '<p class="small muted">' + esc(t('bl.verif_ket')) + '</p><p class="small"><b>' + esc(t('bl.kuota_info', { terisi: d.keg.terisi, kuota: d.keg.kuota })) + '</b></p><div class="tbl"><table><tr><th>' + esc(t('bl.instansi')) + '</th><th>' + esc(t('bl.nama_gelar')) + '</th><th>' + esc(t('bl.jabatan')) + '</th><th>' + esc(t('bl.nip')) + '</th><th>' + esc(t('bl.kontak')) + '</th><th>' + esc(t('bl.surat_tugas')) + '</th><th>' + esc(t('bl.dikirim')) + '</th><th>' + esc(t('bl.status')) + '</th><th></th></tr>' + ps.map(function (p) {
+      return '<tr><td>' + esc(p.instansi) + '</td><td><b>' + esc(p.name) + '</b>' + (p.username ? '<div class="small"><code>' + esc(p.username) + '</code></div>' : '') + '</td><td>' + esc(p.jabatan) + '</td><td>' + esc(p.nip) + '</td><td class="small">' + esc(p.email) + '<br>' + esc(p.hp) + '</td><td>' + (p.hasSurat ? '<a href="berkas.php?j=surat&id=' + p.id + '" target="_blank" rel="noopener">' + esc(t('bl.lihat_pdf')) + '</a>' : '–') + '</td><td class="small">' + dt(p.sentAt) + '</td><td>' + chipStatus('pes', p.status) + (p.msg ? '<div class="small muted" style="white-space:pre-line">' + esc(p.msg) + '</div>' : '') + '</td><td style="white-space:nowrap">' +
         (p.status === 'menunggu' && d.keg.status !== 'arsip' ? '<button class="btn s" data-act="blVerif" data-id="' + p.id + '" data-v="diterima">' + esc(t('bl.terima')) + '</button> <button class="btn o s" data-act="blVerif" data-id="' + p.id + '" data-v="lengkapi">' + esc(t('bl.minta_lengkapi')) + '</button> <button class="btn d s" data-act="blVerif" data-id="' + p.id + '" data-v="ditolak">' + esc(t('bl.tolak')) + '</button>' : '') + '</td></tr>';
     }).join('') + '</table></div>';
   }
@@ -196,7 +209,7 @@
     if (!ps.length) return h + '<p class="muted">' + esc(t('bl.belum_ada_peserta_diterima')) + '</p>';
     var nv = {}; (d.nilai || []).forEach(function (n) { nv[n.pesertaId + ':' + n.aspekId] = n.v; });
     h += '<div class="card"><h3>' + esc(t('bl.penilaian_peserta')) + '</h3><p class="small muted">' + esc(t('bl.penilaian_ket')) + '</p><div class="tbl"><table><tr><th>' + esc(t('bl.peserta')) + '</th>' + asp.map(function (a) { return '<th>' + esc(a.name) + '<div class="small muted">' + esc(a.jenis === 'sikap' ? t('bl.sikap') : t('bl.praktik')) + '</div></th>'; }).join('') + '</tr>' + ps.map(function (p) {
-      return '<tr><td><b>' + esc(p.name) + '</b><div class="small muted">' + esc(C.pkm(p.pkmId).name) + '</div></td>' + asp.map(function (a) { var v = nv[p.id + ':' + a.id]; return '<td class="in"><input class="cell" type="number" min="0" max="100" style="width:70px" placeholder="' + a.def + '" data-blnilai="' + p.id + '" data-asp="' + a.id + '" value="' + (v == null ? '' : v) + '"' + (ed ? '' : ' disabled') + '></td>'; }).join('') + '</tr>';
+      return '<tr><td><b>' + esc(p.name) + '</b><div class="small muted">' + esc(p.instansi) + '</div></td>' + asp.map(function (a) { var v = nv[p.id + ':' + a.id]; return '<td class="in"><input class="cell" type="number" min="0" max="100" style="width:70px" placeholder="' + a.def + '" data-blnilai="' + p.id + '" data-asp="' + a.id + '" value="' + (v == null ? '' : v) + '"' + (ed ? '' : ' disabled') + '></td>'; }).join('') + '</tr>';
     }).join('') + '</table></div></div>';
     return h;
   }
@@ -204,7 +217,7 @@
     var sc = d.scores || { rows: [] }, segs = d.segs;
     if (!sc.rows.length) return '<p class="muted">' + esc(t('bl.belum_ada_peserta_diterima')) + '</p>';
     return '<div class="row"><p class="small muted sp">' + esc(t('bl.pantau_ket')) + '</p><button class="btn o s" data-act="blReload">' + esc(t('bl.muat_ulang')) + '</button></div><div class="tbl"><table><tr><th>' + esc(t('bl.peserta')) + '</th>' + segs.map(function (s) { return '<th>' + esc(segName(s)) + '<div class="small muted">' + esc(t('bl.st_seg.' + s.status)) + '</div></th>'; }).join('') + '<th class="num">' + esc(t('bl.penyelesaian')) + '</th></tr>' + sc.rows.map(function (r) {
-      return '<tr><td><b>' + esc(r.name) + '</b><div class="small muted">' + esc(C.pkm(r.pkmId).name) + '</div></td>' + segs.map(function (s) {
+      return '<tr><td><b>' + esc(r.name) + '</b><div class="small muted">' + esc(r.instansi) + '</div></td>' + segs.map(function (s) {
         var done = r.doneSegs.indexOf(s.id) >= 0, test = s.jenis === 'pretest' || s.jenis === 'posttest', n = (r.answered || {})[s.id] || 0;
         return '<td>' + (done ? H.chip(t('bl.selesai'), 'ok') : (test && n ? H.chip(t('bl.terjawab', { n: n, m: sc.nSoal }), 'warn') : '<span class="muted">–</span>')) + (done && test ? '<div class="small">' + num(s.jenis === 'pretest' ? r.pre : r.post) + '</div>' : '') + '</td>';
       }).join('') + '<td class="num">' + num(r.complete) + '%</td></tr>';
@@ -216,13 +229,13 @@
     var n = sc.rows.length, b = sc.bobot || {};
     var h = '<p class="small muted">' + esc(t('bl.bobot_ket', { post: num(b.post), praktik: num(b.praktik), sikap: num(b.sikap), progres: num(b.progres) })) + '</p>';
     if (sc.final && sc.predikat) h += '<div class="grid g3">' + ['post', 'progres', 'terbaik'].map(function (key) {
-      var names = sc.predikat[key].map(function (id) { var r = sc.rows.filter(function (x) { return x.pesertaId === id; })[0]; return r ? r.name + ' (' + C.pkm(r.pkmId).name + ')' : ''; });
+      var names = sc.predikat[key].map(function (id) { var r = sc.rows.filter(function (x) { return x.pesertaId === id; })[0]; return r ? r.name + (r.instansi ? ' (' + r.instansi + ')' : '') : ''; });
       return '<div class="card"><div class="small muted">' + esc(t('bl.predikat.' + key)) + '</div><b>' + esc(names.join(', ') || '–') + '</b></div>';
     }).join('') + '</div>';
     else h += '<div class="note info">' + esc(t('bl.predikat_belum')) + '</div>';
     var rows = sc.rows.slice().sort(function (a, b) { return (a.rank.terbaik || 999) - (b.rank.terbaik || 999); });
     h += '<div class="tbl"><table><tr><th>' + esc(t('bl.peserta')) + '</th><th class="num">' + esc(t('bl.pretest')) + '</th><th class="num">' + esc(t('bl.posttest')) + '</th><th class="num">' + esc(t('bl.progres')) + '</th><th class="num">' + esc(t('bl.praktik')) + '</th><th class="num">' + esc(t('bl.sikap')) + '</th><th class="num">' + esc(t('bl.penyelesaian')) + '</th><th class="num">' + esc(t('bl.skor_terbaik')) + '</th><th>' + esc(t('bl.peringkat')) + '</th></tr>' + rows.map(function (r) {
-      return '<tr><td><b>' + esc(r.name) + '</b><div class="small muted">' + esc(C.pkm(r.pkmId).name) + '</div></td><td class="num">' + num(r.pre) + '</td><td class="num">' + num(r.post) + '</td><td class="num">' + num(r.progres) + '</td><td class="num">' + num(r.praktik) + '</td><td class="num">' + num(r.sikap) + '</td><td class="num">' + num(r.complete) + '%</td><td class="num"><b>' + num(r.terbaik) + '</b></td><td class="small">' +
+      return '<tr><td><b>' + esc(r.name) + '</b><div class="small muted">' + esc(r.instansi) + '</div></td><td class="num">' + num(r.pre) + '</td><td class="num">' + num(r.post) + '</td><td class="num">' + num(r.progres) + '</td><td class="num">' + num(r.praktik) + '</td><td class="num">' + num(r.sikap) + '</td><td class="num">' + num(r.complete) + '%</td><td class="num"><b>' + num(r.terbaik) + '</b></td><td class="small">' +
         esc(t('bl.rk_post')) + ': ' + rank(r.rank.post, n) + '<br>' + esc(t('bl.rk_progres')) + ': ' + rank(r.rank.progres, n) + '<br>' + esc(t('bl.rk_complete')) + ': ' + rank(r.rank.complete, n) + '<br>' + esc(t('bl.rk_terbaik')) + ': ' + rank(r.rank.terbaik, n) + '</td></tr>';
     }).join('') + '</table></div>';
     if (d.eval) h += '<div class="card"><h3>' + esc(t('bl.eval_judul')) + '</h3>' + (d.eval.length ? '<div class="tbl"><table><tr><th>' + esc(t('bl.aspek')) + '</th>' + d.eval.map(function (e) { var p = d.narsum.filter(function (x) { return x.id === e.narsumId; })[0]; return '<th class="num">' + esc(p ? p.name : '?') + '<div class="small muted">' + esc(t('bl.n_penilai', { n: e.n })) + '</div></th>'; }).join('') + '</tr>' +
@@ -231,22 +244,70 @@
     return h;
   }
 
-  /* ---------- Binaan (akun Puskesmas): memantau personelnya ---------- */
-  function binaanPage(d) {
-    var k = d.keg, ps = d.peserta || [];
-    var h = head(k) + '<p class="small muted">' + esc(t('bl.pkm_pantau_ket')) + '</p>';
-    if (!ps.length) return h + '<p class="muted">' + esc(t('bl.belum_ada_pendaftar_pkm')) + '</p>';
-    var sc = {}; ((d.scores || {}).rows || []).forEach(function (r) { sc[r.pesertaId] = r; });
-    return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.nama_gelar')) + '</th><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('bl.status')) + '</th><th>' + esc(t('bl.progres_peserta')) + '</th></tr>' + ps.map(function (p) {
-      var r = sc[p.id];
-      return '<tr><td><b>' + esc(p.name) + '</b><div class="small muted">' + esc([p.jabatan, p.nip].filter(Boolean).join(' · ')) + '</div></td><td><code>' + esc(p.username || '') + '</code></td><td>' + chipStatus('pes', p.status) + (p.msg && p.status !== 'menunggu' ? '<div class="small muted" style="white-space:pre-line">' + esc(p.msg) + '</div>' : '') + '</td><td class="small">' + (r ? esc(t('bl.ringkas_progres', { c: num(r.complete), pre: num(r.pre), post: num(r.post) })) : '–') + '</td></tr>';
+  /* ---------- Pengawas: progres & hasil akhir sebagai kartu timeline sesuai rundown ---------- */
+  function pengawasPage(d) {
+    var k = d.keg, sc = d.scores || { rows: [] }, tl = {};
+    (d.timeline || []).forEach(function (x) { tl[x.segId] = x; });
+    var big = function (label, v) { return '<div class="stat"><div class="small muted">' + esc(label) + '</div><div style="font-size:1.6rem;font-weight:800">' + v + '</div></div>'; };
+    var h = head(k) + '<p class="small muted">' + esc(t('bl.pengawas_halaman_ket')) + '</p><div class="grid g3" style="margin-bottom:14px">' +
+      big(t('bl.peserta_diterima'), sc.rows.length) + big(t('bl.kuota_terisi'), k.terisi + ' / ' + k.kuota) + big(t('bl.segmen_ditutup_n'), d.segs.filter(function (s) { return s.status === 'tutup'; }).length + ' / ' + d.segs.length) + '</div>';
+    h += '<div class="timeline">' + d.segs.map(function (s, i) {
+      var x = tl[s.id] || { done: 0, n: 0 }, pct = x.n ? Math.round(x.done / x.n * 100) : 0;
+      return '<div class="tl-item ' + s.status + '"><div class="tl-dot"></div><div class="card"><div class="row"><b class="sp">' + (i + 1) + '. ' + esc(segName(s)) + '</b>' + chipStatus('seg', s.status) + '</div>' +
+        '<div class="small muted">' + esc(t('bl.jenis_opsi.' + s.jenis)) + ' · ' + esc(t('bl.pic')) + ': ' + esc(s.picName || '–') + ' · ' + esc(sched(s)) + '</div>' +
+        ((s.sesi || []).length ? '<ul class="small" style="margin:6px 0 0 16px;padding:0">' + s.sesi.map(function (y) { return '<li>' + esc(y.title) + ' – ' + esc(sched(y)) + (y.pic ? ' · ' + esc(y.pic) : '') + '</li>'; }).join('') + '</ul>' : '') +
+        '<div class="small" style="margin-top:8px">' + esc(t('bl.tl_selesai', { n: x.done, m: x.n })) + (x.avg != null ? ' · ' + esc(t('bl.tl_rata', { v: num(x.avg) })) : '') + '</div>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div></div></div>';
+    }).join('');
+    h += '<div class="tl-item ' + (sc.final ? 'tutup' : 'belum') + '"><div class="tl-dot"></div><div class="card"><h3>' + esc(t('bl.hasil_akhir')) + '</h3>';
+    if (!sc.final) h += '<div class="note info">' + esc(t('bl.predikat_belum')) + '</div>';
+    else {
+      var pr = d.predikat || {};
+      h += '<div class="grid g3">' + ['post', 'progres', 'terbaik'].map(function (key) {
+        return '<div class="card"><div class="small muted">' + esc(t('bl.predikat.' + key)) + '</div>' + ((pr[key] || []).length ? pr[key].map(function (y) { return '<div><b>' + esc(y.name) + '</b><div class="small muted">' + esc(y.instansi) + '</div></div>'; }).join('') : '–') + '</div>';
+      }).join('') + '</div>';
+      var n = sc.rows.length, rows = sc.rows.slice().sort(function (a, b) { return (a.rank.terbaik || 999) - (b.rank.terbaik || 999); });
+      h += '<div class="tbl" style="margin-top:10px"><table><tr><th>' + esc(t('bl.peserta')) + '</th><th class="num">' + esc(t('bl.pretest')) + '</th><th class="num">' + esc(t('bl.posttest')) + '</th><th class="num">' + esc(t('bl.progres')) + '</th><th class="num">' + esc(t('bl.penyelesaian')) + '</th><th class="num">' + esc(t('bl.skor_terbaik')) + '</th><th>' + esc(t('bl.peringkat')) + '</th></tr>' + rows.map(function (r) {
+        return '<tr><td><b>' + esc(r.name) + '</b><div class="small muted">' + esc(r.instansi) + '</div></td><td class="num">' + num(r.pre) + '</td><td class="num">' + num(r.post) + '</td><td class="num">' + num(r.progres) + '</td><td class="num">' + num(r.complete) + '%</td><td class="num"><b>' + num(r.terbaik) + '</b></td><td class="small">' + esc(t('bl.rk_terbaik')) + ': ' + rank(r.rank.terbaik, n) + '</td></tr>';
+      }).join('') + '</table></div>';
+    }
+    return h + '</div></div></div>';
+  }
+
+  /* ---------- Peserta: riwayat pembelajaran ---------- */
+  function riwayatPage() {
+    if (me().role !== 'peserta') return H.denied();
+    var list = ui.blRiwayat;
+    if (!list) { C.api('bl_riwayat', {}).then(function (x) { ui.blRiwayat = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
+    var h = '<h2>' + esc(t('blapp.menu_riwayat')) + '</h2><p class="muted">' + esc(t('bl.riwayat_ket')) + '</p>';
+    if (!list.length) return h + '<p class="muted">' + esc(t('bl.riwayat_kosong')) + '</p>';
+    return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.judul')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.status')) + '</th><th class="num">' + esc(t('bl.pretest')) + '</th><th class="num">' + esc(t('bl.posttest')) + '</th><th class="num">' + esc(t('bl.progres')) + '</th><th class="num">' + esc(t('bl.penyelesaian')) + '</th><th>' + esc(t('bl.predikat_kol')) + '</th></tr>' + list.map(function (x) {
+      var r = x.result;
+      return '<tr><td><a href="#bl-' + x.kegId + '"><b>' + esc(x.title) + '</b></a><div class="small muted">' + esc(x.org) + '</div></td><td class="small">' + esc([x.start, x.end].filter(Boolean).join(' s.d. ') || '–') + '</td><td>' + chipStatus('pes', x.status) + (x.kegStatus === 'arsip' ? ' ' + chipStatus('keg', 'arsip') : '') + '</td>' +
+        (r ? '<td class="num">' + num(r.pre) + '</td><td class="num">' + num(r.post) + '</td><td class="num">' + num(r.progres) + '</td><td class="num">' + num(r.complete) + '%</td><td class="small">' + (r.predikat.length ? esc(r.predikat.map(function (y) { return t('bl.predikat.' + y); }).join(', ')) : (r.final ? '–' : esc(t('bl.predikat_belum_singkat')))) + '</td>'
+          : '<td class="num">–</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td>–</td>') + '</tr>';
     }).join('') + '</table></div>';
   }
 
-  /* ---------- Sub-akun: mendaftarkan diri ---------- */
+  /* ---------- Admin: akun subdomain ---------- */
+  function penggunaPage() {
+    if (me().role !== 'admin') return H.denied();
+    var us = C.S.users || [], order = { admin: 0, pembina: 1, fasil: 2, pengawas: 3, peserta: 4 };
+    us = us.slice().sort(function (a, b) { return (order[a.role] - order[b.role]) || a.name.localeCompare(b.name); });
+    var h = '<h2>' + esc(t('blapp.menu_pengguna')) + '</h2><div class="card"><h3>' + esc(t('admin.tambah_akun')) + '</h3><div class="form"><label class="f">' + esc(t('admin.peran')) + '<select class="inp" id="buR">' + ['pembina', 'fasil', 'pengawas'].map(function (r) { return H.opt(r, t('peran.' + r)); }).join('') + '</select></label><label class="f">' + esc(t('admin.nama')) + '<input class="inp" id="buN"></label><label class="f">' + esc(t('admin.username')) + '<input class="inp" id="buU"></label><label class="f">' + esc(t('blapp.instansi')) + '<input class="inp" id="buI"></label><div><button class="btn" data-act="blUserAdd">' + esc(t('admin.tombol_tambah_akun')) + '</button></div></div><p class="small muted">' + esc(t('blapp.pengguna_ket')) + '</p></div>';
+    return h + '<div class="tbl"><table><tr><th>' + esc(t('admin.peran')) + '</th><th>' + esc(t('admin.nama')) + '</th><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('blapp.instansi')) + '</th><th>' + esc(t('blapp.email')) + '</th><th>' + esc(t('blapp.hp')) + '</th><th>' + esc(t('blapp.masuk_terakhir')) + '</th><th>' + esc(t('blapp.aktif')) + '</th><th></th></tr>' + us.map(function (x) {
+      var adm = x.role === 'admin', inp = function (k, v) { return '<td class="in"><input class="cell" data-bluser="' + x.id + '" data-k="' + k + '" value="' + esc(v) + '"></td>'; };
+      return '<tr><td>' + esc(t('peran.' + x.role)) + '</td>' + inp('nama', x.name) + inp('username', x.username) + inp('instansi', x.instansi) + inp('email', x.email) + inp('hp', x.hp) + '<td class="small">' + esc(x.lastLogin || '–') + '</td><td>' + (adm ? '' : '<input type="checkbox" data-act="blUserActive" data-id="' + x.id + '"' + (x.active ? ' checked' : '') + '>') + '</td><td>' + (adm ? '' : '<button class="btn o s" data-act="blUserReset" data-id="' + x.id + '">' + esc(t('admin.reset_sandi')) + '</button>') + '</td></tr>';
+    }).join('') + '</table></div>';
+  }
+  function credModal(r) {
+    H.modal('<h3>' + esc(t('admin.sandi_sementara')) + '</h3><p>' + esc(t('admin.sandi_sementara_ket')) + '</p><div class="tbl"><table><tr><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('admin.sandi')) + '</th></tr><tr><td><code>' + esc(r.username) + '</code></td><td><code>' + esc(r.password) + '</code></td></tr></table></div><div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" data-close>' + esc(t('umum.tutup')) + '</button></div>');
+  }
+
+  /* ---------- Peserta: mendaftarkan diri ---------- */
   function regPage(d) {
-    var k = d.keg, g = d.reg, open = k.status === 'terbit' && k.open;
-    var back = '<div class="small"><a href="#bl">← ' + esc(t('menu.bl')) + '</a></div>';
+    var k = d.keg, g = d.reg, open = k.formOpen;
+    var back = '<div class="small"><a href="#bl">← ' + esc(t('blapp.menu_kegiatan')) + '</a></div>';
     if (g && g.status === 'menunggu') {
       poll = setInterval(function () { if (H.route() === 'bl-' + k.id) load(k.id).then(App.render); }, 30000);
       return back + '<div class="card plain-wait"><p>' + esc(t('bl.menunggu_verifikasi')) + '</p></div>';
@@ -254,12 +315,12 @@
     var h = back + head(k).replace(/^<div class="small">.*?<\/div>/, '');
     if (g && g.status === 'ditolak') return h + '<div class="card"><div class="row"><h3 class="sp">' + esc(t('bl.konfirmasi_kehadiran')) + '</h3>' + chipStatus('pes', 'ditolak') + '</div><div class="note bad"><b>' + esc(t('bl.pesan_admin')) + '</b><div style="white-space:pre-line">' + esc(g.msg) + '</div></div></div>';
     if (g && g.status === 'lengkapi') return h + '<div class="card"><div class="row"><h3 class="sp">' + esc(t('bl.konfirmasi_kehadiran')) + '</h3>' + chipStatus('pes', 'lengkapi') + '</div><div class="note"><b>' + esc(t('bl.pesan_admin')) + '</b><div style="white-space:pre-line">' + esc(g.msg) + '</div></div>' + regForm(g, true) + '</div>';
-    if (!open) return h + '<p class="muted">' + esc(t('bl.pendaftaran_ditutup')) + '</p>';
+    if (!open) return h + '<p class="muted">' + esc(formState(k)) + '</p>';
     return h + '<div class="card"><h3>' + esc(t('bl.konfirmasi_kehadiran')) + '</h3><p class="small muted">' + esc(t('bl.daftar_ket')) + '</p>' + regForm(d.self, false) + '</div>';
   }
   function regForm(v, ulang) {
-    var f = function (id, key, ph) { return '<label class="f">' + esc(t(key)) + '<input class="inp" id="' + id + '" placeholder="' + esc(t(ph)) + '" value="' + esc(v[{ brN: 'name', brJ: 'jabatan', brP: 'nip' }[id]] || '') + '"></label>'; };
-    return '<div class="form" style="margin-top:8px">' + f('brN', 'bl.nama_gelar', 'bl.ph_nama_gelar') + f('brJ', 'bl.jabatan', 'bl.ph_jabatan') + f('brP', 'bl.nip', 'bl.ph_nip') +
+    var f = function (id, key, ph, type) { return '<label class="f">' + esc(t(key)) + '<input class="inp" ' + (type ? 'type="' + type + '" ' : '') + 'id="' + id + '" placeholder="' + esc(ph ? t(ph) : '') + '" value="' + esc(v[{ brN: 'name', brJ: 'jabatan', brP: 'nip', brI: 'instansi', brE: 'email', brH: 'hp' }[id]] || '') + '"></label>'; };
+    return '<div class="form" style="margin-top:8px">' + f('brN', 'bl.nama_gelar', 'bl.ph_nama_gelar') + f('brJ', 'bl.jabatan', 'bl.ph_jabatan') + f('brP', 'bl.nip', 'bl.ph_nip') + f('brI', 'bl.instansi', 'blapp.ph_instansi') + f('brE', 'blapp.email', '', 'email') + f('brH', 'blapp.hp', 'blapp.ph_hp', 'tel') +
       '<label class="f">' + esc(t(ulang ? 'bl.surat_tugas_baru' : 'bl.surat_tugas_pdf')) + '<input type="file" id="brS" accept="application/pdf"></label></div>' +
       '<div class="row" style="margin-top:12px"><button class="btn" data-act="blKirim" data-ulang="' + (ulang ? 1 : 0) + '">' + esc(t(ulang ? 'bl.kirim_ulang' : 'bl.kirim')) + '</button><button class="btn o" data-act="blKosongkan">' + esc(t('bl.kosongkan')) + '</button><a class="btn o" href="#bl">' + esc(t('umum.batal')) + '</a></div>';
   }
@@ -267,7 +328,7 @@
   /* ---------- Peserta (sub-akun) ---------- */
   function pesertaHome(d) {
     var k = d.keg, done = d.done || {};
-    var h = '<div class="small"><a href="#bl">← ' + esc(t('menu.bl')) + '</a></div><div class="card welcome"><h2>' + esc(t('bl.selamat_datang', { nama: d.me.name })) + '</h2><p>' + esc(t('bl.selamat_datang_ket', { keg: k.title })) + '</p><p class="small muted">' + esc([k.org, k.place, [k.start, k.end].filter(Boolean).join(' s.d. ')].filter(Boolean).join(' · ')) + '</p></div>';
+    var h = '<div class="small"><a href="#bl">← ' + esc(t('blapp.menu_kegiatan')) + '</a></div><div class="card welcome"><h2>' + esc(t('bl.selamat_datang', { nama: d.me.name })) + '</h2><p>' + esc(t('bl.selamat_datang_ket', { keg: k.title })) + '</p><p class="small muted">' + esc([k.org, k.place, [k.start, k.end].filter(Boolean).join(' s.d. ')].filter(Boolean).join(' · ')) + '</p></div>';
     if (d.result) h += resultCard(d);
     h += '<h3>' + esc(t('bl.segmen')) + '</h3>' + d.segs.map(function (s, i) {
       var isDone = !!done[s.id];
@@ -288,7 +349,7 @@
       var mineP = ['post', 'progres', 'terbaik'].filter(function (key) { return pr[key].some(function (x) { return x.me; }); });
       if (mineP.length) h += '<div class="note ok congrats"><b>' + esc(t('bl.selamat_predikat', { predikat: mineP.map(function (x) { return t('bl.predikat.' + x); }).join(', ') })) + '</b></div>';
       h += '<h4>' + esc(t('bl.peraih_predikat')) + '</h4><div class="grid g3">' + ['post', 'progres', 'terbaik'].map(function (key) {
-        return '<div class="card"><div class="small muted">' + esc(t('bl.predikat.' + key)) + '</div>' + (pr[key].length ? pr[key].map(function (x) { return '<div><b>' + esc(x.name) + '</b><div class="small muted">' + esc(x.pkm) + '</div></div>'; }).join('') : '–') + '<div class="small" style="margin-top:6px">' + esc(t('bl.ucapan_predikat')) + '</div></div>';
+        return '<div class="card"><div class="small muted">' + esc(t('bl.predikat.' + key)) + '</div>' + (pr[key].length ? pr[key].map(function (x) { return '<div><b>' + esc(x.name) + '</b><div class="small muted">' + esc(x.instansi) + '</div></div>'; }).join('') : '–') + '<div class="small" style="margin-top:6px">' + esc(t('bl.ucapan_predikat')) + '</div></div>';
       }).join('') + '</div>';
     } else h += '<div class="note info">' + esc(t('bl.predikat_belum')) + '</div>';
     return h + '</div>';
@@ -334,9 +395,9 @@
   }
 
   // data kegiatan dimuat ulang setiap pindah halaman agar status segmen selalu terbaru
-  window.addEventListener('hashchange', function () { cache = {}; });
+  window.addEventListener('hashchange', function () { cache = {}; ui.blRiwayat = null; ui.blProfil = null; });
   App.addActions({
-    blKegAdd: function () { act('bl_keg_add', { title: $('#bkT').value, org: $('#bkO').value }, t('bl.dibuat')).then(function (r) { H.go('bl-' + r.id); }); },
+    blKegAdd: function () { act('bl_keg_add', { title: $('#bkT').value, org: $('#bkO').value, kuota: $('#bkK').value }, t('bl.dibuat')).then(function (r) { H.go('bl-' + r.id); }); },
     blTab: function (el) { ui.blTab[kegId()] = el.dataset.v; ui.blEditSoal = null; App.render(); },
     blReload: function () { load(kegId()).then(function () { H.keepScroll(); App.render(); }); },
     blKegStatus: function (el) { var v = el.dataset.v; confirmBox(t('bl.status'), t('bl.konfirm_' + v), t(v === 'terbit' ? 'bl.terbitkan' : 'bl.kembali_draf'), function () { act('bl_keg_status', { id: +kegId(), v: v }, t('umum.tersimpan')); }); },
@@ -364,7 +425,7 @@
     },
     blVerif: function (el) {
       var v = el.dataset.v, p = cur().peserta.filter(function (x) { return String(x.id) === el.dataset.id; })[0];
-      var m = H.modal('<h3>' + esc(t('bl.verif_judul.' + v)) + '</h3><p><b>' + esc(p.name) + '</b> – ' + esc(C.pkm(p.pkmId).name) + '</p>' + (v === 'diterima' ? '<p>' + esc(t('bl.verif_terima_ket')) + '</p>' : '<label class="f">' + esc(t('bl.pesan_untuk_pkm')) + '<textarea class="inp" rows="4" id="vMsg"></textarea></label>') + '<div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn' + (v === 'ditolak' ? ' d' : '') + '" id="vOK">' + esc(t('bl.verif_tombol.' + v)) + '</button></div>');
+      var m = H.modal('<h3>' + esc(t('bl.verif_judul.' + v)) + '</h3><p><b>' + esc(p.name) + '</b>' + (p.instansi ? ' – ' + esc(p.instansi) : '') + '</p>' + (v === 'diterima' ? '<p>' + esc(t('bl.verif_terima_ket')) + '</p>' : '<label class="f">' + esc(t('bl.pesan_untuk_peserta')) + '<textarea class="inp" rows="4" id="vMsg"></textarea></label>') + '<div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn' + (v === 'ditolak' ? ' d' : '') + '" id="vOK">' + esc(t('bl.verif_tombol.' + v)) + '</button></div>');
       $('#vOK', m).onclick = function () {
         var msg = $('#vMsg', m) ? $('#vMsg', m).value : '';
         m.remove(); H.keepScroll();
@@ -386,11 +447,14 @@
     blAspAdd: function (el) { var key = el.dataset.j + '-' + el.dataset.seg; H.keepScroll(); act('bl_aspek_add', { kegId: +kegId(), jenis: el.dataset.j, segId: +el.dataset.seg, name: $('#ba-' + key).value, def: +$('#bd-' + key).value }, t('umum.ditambahkan')); },
     blAspDel: function (el) { confirmBox(t('sd.hapus'), t('bl.konfirm_hapus_aspek'), t('sd.hapus'), function () { H.keepScroll(); act('bl_aspek_del', { id: +el.dataset.id }, t('sd.terhapus')); }, true); },
     blProfilSave: function () { C.api('bl_profil_save', { instansi: $('#bpI').value, jabatan: $('#bpJ').value, ringkasan: $('#bpR').value }).then(function (r) { ui.blProfil = null; H.toast(t('umum.tersimpan')); App.render(); }, function (e) { H.toast(e.message, true); }); },
-    blKosongkan: function () { ['#brN', '#brJ', '#brP', '#brS'].forEach(function (x) { var e = $(x); if (e) e.value = ''; }); },
+    blUserAdd: function () { act('bl_user_add', { role: $('#buR').value, name: $('#buN').value, username: $('#buU').value, instansi: $('#buI').value }, t('umum.ditambahkan')).then(credModal); },
+    blUserActive: function (el) { H.keepScroll(); act('bl_user_active', { id: +el.dataset.id, v: el.checked }, t('umum.tersimpan')); },
+    blUserReset: function (el) { confirmBox(t('admin.reset_sandi'), t('blapp.konfirm_reset'), t('admin.reset_sandi'), function () { act('bl_user_reset', { id: +el.dataset.id }).then(credModal); }); },
+    blKosongkan: function () { ['#brN', '#brJ', '#brP', '#brI', '#brE', '#brH', '#brS'].forEach(function (x) { var e = $(x); if (e) e.value = ''; }); },
     blKirim: function (el) {
       var ulang = el.dataset.ulang === '1', f = $('#brS').files[0];
       if (!ulang && !f) return H.toast(t('bl.pilih_surat'), true);
-      var fd = new FormData(); fd.append('kegId', kegId()); fd.append('name', $('#brN').value); fd.append('jabatan', $('#brJ').value); fd.append('nip', $('#brP').value);
+      var fd = new FormData(); fd.append('kegId', kegId()); fd.append('name', $('#brN').value); fd.append('jabatan', $('#brJ').value); fd.append('nip', $('#brP').value); fd.append('instansi', $('#brI').value); fd.append('email', $('#brE').value); fd.append('hp', $('#brH').value);
       if (f) fd.append('surat', f);
       act(ulang ? 'bl_kirim_ulang' : 'bl_daftar', null, t('bl.terkirim'), { form: fd });
     },
@@ -407,6 +471,7 @@
   /* ---------- perubahan isian ---------- */
   App.addChange(function (el, d) {
     var id = kegId();
+    if (d.bluser) { H.keepScroll(); act('bl_user_update', { id: +d.bluser, k: d.k, v: el.value }, t('umum.tersimpan')); return true; }
     if (d.blk) { H.keepScroll(); act('bl_keg_update', { id: +id, k: d.blk, v: el.value }, t('umum.tersimpan')); return true; }
     if (d.blseg) { H.keepScroll(); act('bl_seg_update', { id: +d.blseg, k: d.k, v: el.value }, t('umum.tersimpan')); return true; }
     if (d.blpeople) {

@@ -18,9 +18,6 @@ var App = (function () {
   function canEditSheet(sh) { var u = C.me(); return u.role === 'binaan' && String(u.pkmId) === String(sh.pkmId) && sh.status === 'aktif'; }
   function keepScroll() { ui.keepScroll = window.scrollY; }
   function modal(html) { var bg = document.createElement('div'); bg.className = 'modal-bg'; bg.innerHTML = '<div class="modal">' + html + '</div>'; bg.addEventListener('click', function (e) { if (e.target === bg || e.target.dataset.close != null) bg.remove(); }); document.body.appendChild(bg); return bg; }
-  function subCred(r, title, ket) {
-    modal('<h3>' + esc(title) + '</h3><p>' + esc(ket) + '</p><div class="tbl"><table><tr><th>' + esc(t('admin.username')) + '</th><td><code>' + esc(r.username) + '</code></td></tr><tr><th>' + esc(t('admin.sandi')) + '</th><td><code>' + esc(r.password) + '</code></td></tr></table></div><div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" data-close>' + esc(t('umum.tutup')) + '</button></div>');
-  }
   function pwField(id, ac) { var l = esc(t('masuk.tahan_lihat')); return '<span class="pw"><input class="inp" type="password" id="' + id + '" autocomplete="' + ac + '"><button type="button" class="pw-eye" title="' + l + '" aria-label="' + l + '"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button></span>'; }
   function call(action, data, msg, opts) {
     return C.api(action, data, opts).then(function (r) { if (msg) toast(msg); render(); return r; }, function (e) { toast(e.message, true); render(); return new Promise(function () { }); });
@@ -30,11 +27,9 @@ var App = (function () {
 
   /* ---------- menu ---------- */
   var MENU = {
-    binaan: [['beranda'], ['bl'], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['risiko'], ['#pmi'], ['qc', 1], ['dokkm', 1, 2], ['pme', 0, 3], ['sa', 0, 3], ['pustaka', 0, 3], ['#lainnya'], ['kop'], ['arsip', 0, 2], ['notif']],
-    pembina: [['beranda'], ['bl'], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['#pembinaan'], ['pantau', 1], ['kasus', 1], ['tinjau', 1, 2], ['lpm', 1, 2], ['ub', 0, 3], ['up', 0, 3], ['kl', 0, 3], ['#pengesahan'], ['ttd', 0, 2], ['kop'], ['arsip', 0, 2], ['notif']],
-    admin: [['beranda'], ['bl'], ['#akses'], ['pengguna', 1], ['#referensi'], ['ref-pkm', 1], ['ref-param', 1], ['ref-alat', 1], ['aturan', 1], ['pustaka-kelola', 1, 3], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['#operasional'], ['tampilan', 1], ['operasional', 1], ['arsip', 0, 2]],
-    fasil: [['bl'], ['bl-profil']],
-    peserta: [['bl']]
+    binaan: [['beranda'], ['pembelajaran'], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['risiko'], ['#pmi'], ['qc', 1], ['dokkm', 1, 2], ['pme', 0, 3], ['sa', 0, 3], ['pustaka', 0, 3], ['#lainnya'], ['kop'], ['arsip', 0, 2], ['notif']],
+    pembina: [['beranda'], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['#pembinaan'], ['pantau', 1], ['kasus', 1], ['tinjau', 1, 2], ['lpm', 1, 2], ['ub', 0, 3], ['up', 0, 3], ['kl', 0, 3], ['#pengesahan'], ['ttd', 0, 2], ['kop'], ['arsip', 0, 2], ['notif']],
+    admin: [['beranda'], ['#akses'], ['pengguna', 1], ['#referensi'], ['ref-pkm', 1], ['ref-param', 1], ['ref-alat', 1], ['aturan', 1], ['pustaka-kelola', 1, 3], ['#sd'], ['sd-sdm', 1], ['sd-alat', 1], ['sd-bhp', 1], ['#operasional'], ['tampilan', 1], ['operasional', 1], ['arsip', 0, 2]]
   };
   function tampil() { return Object.assign({ appName: t('app.nama'), longName: t('app.kepanjangan'), tagline: t('app.slogan'), color: '#0d5c63' }, C.settings().tampilan || {}); }
 
@@ -45,9 +40,10 @@ var App = (function () {
     var nav = MENU[u.role].map(function (m) {
       if (m[0].charAt(0) === '#') return '<div class="grp">' + esc(t('menu.grup.' + m[0].slice(1))) + '</div>';
       if (m[2]) return '<a href="#" class="dev ' + (m[1] ? 'sub' : '') + '" data-act="devMenu" data-tip="' + esc(t('umum.masih_dikembangkan')) + '">' + esc(t('menu.' + m[0].replace('-', '_'))) + '</a>';
-      var on = cur === m[0] || (cur.indexOf(m[0] + '-') === 0 && !(m[0] === 'bl' && cur === 'bl-profil')), lk = locked(m[0].split('-')[0]);
-      var badge = m[0] === 'bl' && u.role === 'admin' ? (C.S.bl || []).reduce(function (a, k) { return a + (k.nWaiting || 0); }, 0) : 0;
-      return '<a href="#' + m[0] + '" class="' + (on ? 'on ' : '') + (m[1] ? 'sub ' : '') + (lk ? 'lock' : '') + '"' + (lk ? ' title="' + esc(t('sd.terkunci')) + '"' : '') + '>' + (lk ? '🔒 ' : '') + esc(t('menu.' + m[0].replace('-', '_'))) + (badge ? ' <i class="nbadge">' + badge + '</i>' : '') + '</a>';
+      // Pembelajaran ada di subdomain tersendiri: tautan langsung, membuka di tab yang sama
+      if (m[0] === 'pembelajaran') return '<a href="' + esc(C.S.blUrl || '#') + '">' + esc(t('menu.pembelajaran')) + '</a>';
+      var on = cur === m[0] || cur.indexOf(m[0] + '-') === 0, lk = locked(m[0].split('-')[0]);
+      return '<a href="#' + m[0] + '" class="' + (on ? 'on ' : '') + (m[1] ? 'sub ' : '') + (lk ? 'lock' : '') + '"' + (lk ? ' title="' + esc(t('sd.terkunci')) + '"' : '') + '>' + (lk ? '🔒 ' : '') + esc(t('menu.' + m[0].replace('-', '_'))) + '</a>';
     }).join('');
     var unread = (C.S.notifs || []).filter(function (n) { return !n.read; }).length;
     return '<div class="app"><aside class="side"><div class="brand"><b>' + esc(st.appName) + '</b><small>' + esc(st.tagline) + '</small></div><nav class="nav">' + nav + '</nav></aside>' +
@@ -77,7 +73,6 @@ var App = (function () {
       admin: { beranda: homeAdmin, pengguna: pengguna, ref: function () { return arg === 'pkm' ? refPkm() : arg === 'param' ? refParam() : refAlat(); }, aturan: aturan, tampilan: tampilanPage, operasional: operasional, pustaka: function () { return stage(3); }, arsip: function () { return stage(2); } }
     }[u.role];
     if (allowed) allowed.sd = function () { return sdPage(arg); };
-    if (u.role === 'fasil' || u.role === 'peserta') { allowed = {}; if (head === 'beranda') head = 'bl'; }
     if (EXT[head]) allowed[head] = function () { return EXT[head](arg, u); };
     if (!allowed[head]) return denied();
     if (locked(head)) return setupCard();
@@ -424,7 +419,6 @@ var App = (function () {
     var ed = sdEditable(String(x.pkmId)), cur = x.fotos[0];
     var fld = function (k, key, ph) { return '<label class="f">' + esc(t(key)) + '<input class="inp" data-sdm="' + x.id + '" data-k="' + k + '" value="' + esc(x[k]) + '"' + (ph ? ' placeholder="' + esc(t(ph)) + '"' : '') + (ed ? '' : ' disabled') + '></label>'; };
     var h = '<div class="small"><a href="#sd-sdm">← ' + esc(t('sd.kembali_sdm')) + '</a> · ' + esc(C.ownerName(x.pkmId)) + '</div><div class="row"><h2 class="sp">' + esc(x.name) + '</h2>' + (x.active ? chip(t('sd.aktif'), 'ok') : chip(t('sd.nonaktif'), 'muted')) + '</div>';
-    if (x.subUser) h += '<div class="note info row"><span class="sp">' + esc(t('sd.sub_akun_ket')) + ' <code>' + esc(x.subUser) + '</code>' + (x.active ? '' : ' (' + esc(t('sd.nonaktif')) + ')') + '</span>' + (ed && C.me().role === 'binaan' ? '<button class="btn o s" data-act="subReset" data-id="' + x.id + '">' + esc(t('bl.reset_sub')) + '</button>' : '') + '</div>';
     h += '<div class="grid g2" style="grid-template-columns:220px 1fr;align-items:start"><div class="card">' + fotoImg(x.fotoId, 180) + (cur ? '<p class="small muted">' + esc(t('sd.foto_diunggah', { tgl: cur.at, oleh: cur.by })) + '</p>' : '<p>' + chip(t('sd.belum_foto'), 'bad') + '</p>') +
       (ed ? '<label class="f" style="margin-top:8px">' + esc(t(cur ? 'sd.ganti_foto' : 'sd.unggah_foto')) + '<input type="file" id="sdmFoto" data-id="' + x.id + '" accept="image/jpeg,image/png"></label><p class="small muted">' + esc(t('sd.foto_ket')) + '</p>' : '') + '</div>';
     h += '<div class="card"><div class="form">' + fld('name', 'sd.nama') + fld('nip', 'sd.nip') + fld('jabatan', 'sd.jabatan', 'sd.ph_jabatan') + fld('pendidikan', 'sd.pendidikan') + fld('strNo', 'sd.str_no') + fld('strBerlaku', 'sd.str_berlaku', 'sd.ph_str_berlaku') + fld('sipNo', 'sd.sip_no') + '</div></div></div>';
@@ -487,7 +481,7 @@ var App = (function () {
     var us = C.S.users || [];
     var pkOpts = function (sel) { return C.S.pkms.map(function (p) { return opt(p.id, p.name, String(p.id) === String(sel)); }).join(''); };
     var h = '<h2>' + esc(t('menu.pengguna')) + '</h2><p class="muted">' + esc(t('admin.pengguna_ket')) + '</p>';
-    h += '<div class="card"><h3>' + esc(t('admin.tambah_akun')) + '</h3><div class="form"><label class="f">' + esc(t('admin.peran')) + '<select id="nuRole">' + opt('binaan', t('peran.binaan')) + opt('pembina', t('peran.pembina')) + opt('fasil', t('peran.fasil')) + '</select></label><label class="f">' + esc(t('admin.nama')) + '<input class="inp" id="nuName"></label><label class="f">' + esc(t('admin.username')) + '<input class="inp" id="nuUser" placeholder="' + esc(t('admin.ph_username')) + '"></label><label class="f">' + esc(t('admin.pkm_binaan')) + '<select id="nuPkm">' + pkOpts() + '</select></label><label class="f">' + esc(t('admin.nip')) + '<input class="inp" id="nuNip"></label><label class="f">' + esc(t('admin.jabatan')) + '<input class="inp" id="nuJab"></label><div><button class="btn" data-act="userAdd">' + esc(t('admin.tombol_tambah_akun')) + '</button></div></div><p class="small muted">' + esc(t('admin.ket_tambah_akun')) + '</p></div>';
+    h += '<div class="card"><h3>' + esc(t('admin.tambah_akun')) + '</h3><div class="form"><label class="f">' + esc(t('admin.peran')) + '<select id="nuRole">' + opt('binaan', t('peran.binaan')) + opt('pembina', t('peran.pembina')) + '</select></label><label class="f">' + esc(t('admin.nama')) + '<input class="inp" id="nuName"></label><label class="f">' + esc(t('admin.username')) + '<input class="inp" id="nuUser" placeholder="' + esc(t('admin.ph_username')) + '"></label><label class="f">' + esc(t('admin.pkm_binaan')) + '<select id="nuPkm">' + pkOpts() + '</select></label><label class="f">' + esc(t('admin.nip')) + '<input class="inp" id="nuNip"></label><label class="f">' + esc(t('admin.jabatan')) + '<input class="inp" id="nuJab"></label><div><button class="btn" data-act="userAdd">' + esc(t('admin.tombol_tambah_akun')) + '</button></div></div><p class="small muted">' + esc(t('admin.ket_tambah_akun')) + '</p></div>';
     h += '<div class="row" style="margin:10px 0"><span class="sp"></span><button class="btn o" data-act="userResetAll">' + esc(t('admin.reset_semua')) + '</button></div>';
     h += '<div class="tbl"><table><tr><th>' + esc(t('admin.peran')) + '</th><th>' + esc(t('admin.nama')) + '</th><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('admin.pkm_binaan')) + '</th><th>' + esc(t('admin.nip')) + '</th><th>' + esc(t('admin.jabatan')) + '</th><th>' + esc(t('admin.status')) + '</th><th>' + esc(t('admin.masuk_terakhir')) + '</th><th></th></tr>' + us.map(function (x) {
       var adm = x.role === 'admin';
@@ -597,11 +591,7 @@ var App = (function () {
     teaOK: function (el) { call('param_teaok', { id: +el.dataset.id, v: el.checked }); },
     alatAdd: function () { call('alat_add', { name: $('#naN').value, merk: $('#naM').value, tipe: $('#naT').value, cat: $('#naC').value }, t('umum.ditambahkan')); },
     alatActive: function (el) { keepScroll(); call('alat_active', { id: +el.dataset.id, v: el.checked }); },
-    sdmAdd: function () { call('sdm_add', { name: $('#nsdN').value, jabatan: $('#nsdJ').value }, t('umum.ditambahkan')).then(function (r) { go('sd-sdm-' + r.id); if (r.password) subCred(r, t('sd.sub_dibuat_judul'), t('sd.sub_dibuat_ket')); }); },
-    subReset: function (el) {
-      var m = modal('<h3>' + esc(t('bl.reset_sub')) + '</h3><p>' + esc(t('bl.konfirm_reset_sub')) + '</p><div class="row"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="srOK">' + esc(t('bl.reset_sub')) + '</button></div>');
-      $('#srOK', m).onclick = function () { m.remove(); call('bl_reset_sub', { personelId: +el.dataset.id }).then(function (r) { subCred(r, t('bl.akun_peserta'), t('bl.akun_ket')); }); };
-    },
+    sdmAdd: function () { call('sdm_add', { name: $('#nsdN').value, jabatan: $('#nsdJ').value }, t('umum.ditambahkan')).then(function (r) { go('sd-sdm-' + r.id); }); },
     sdmActive: function (el) { keepScroll(); call('sdm_active', { id: +el.dataset.id, v: el.checked }); },
     trainAdd: function (el) { call('sdm_train_add', { id: +el.dataset.id, name: $('#trN').value, by: $('#trB').value, tahun: $('#trT').value }, t('umum.ditambahkan')); },
     trainDel: function (el) { keepScroll(); call('sdm_train_del', { id: +el.dataset.id, i: +el.dataset.i }); },
@@ -674,5 +664,5 @@ var App = (function () {
     h: { $: $, toast: toast, go: go, route: route, chip: chip, opt: opt, modal: modal, keepScroll: keepScroll, ui: ui, denied: denied, loadingCard: loadingCard }
   };
 })();
-// modul tambahan (belajar.js) dimuat sesudah berkas ini; aplikasi dijalankan setelah semua skrip siap
+// aplikasi dijalankan setelah semua skrip siap
 document.addEventListener('DOMContentLoaded', function () { App.init(document.getElementById('app')); });

@@ -190,8 +190,7 @@ function out_param(array $p): array
 function out_user(array $u): array
 {
     return ['id' => (int)$u['id'], 'role' => $u['role'], 'name' => $u['nama'], 'username' => $u['username'], 'pkmId' => $u['puskesmas_id'] === null ? null : (int)$u['puskesmas_id'],
-        'nip' => (string)$u['nip'], 'jabatan' => (string)$u['jabatan'], 'active' => (bool)$u['aktif'], 'mustChange' => (bool)$u['must_change'], 'lastLogin' => $u['last_login'],
-        'personelId' => empty($u['personel_id']) ? null : (int)$u['personel_id']];
+        'nip' => (string)$u['nip'], 'jabatan' => (string)$u['jabatan'], 'active' => (bool)$u['aktif'], 'mustChange' => (bool)$u['must_change'], 'lastLogin' => $u['last_login']];
 }
 function out_risk(array $r): array
 {
@@ -221,7 +220,6 @@ function sheet_summaries(array $sheetIds): array
 function app_state(array $u): array
 {
     $role = $u['role'];
-    if ($role === 'fasil' || $role === 'peserta') return app_state_bl($u);
     $pk = $role === 'binaan' ? (int)$u['puskesmas_id'] : null;
     $S = [
         'me' => out_user($u),
@@ -236,7 +234,7 @@ function app_state(array $u): array
     $S['bhp'] = array_map(fn($b) => out_bhp($b, isset($used[(int)$b['id']])), $pk ? qall('SELECT * FROM bhp WHERE puskesmas_id = ? ORDER BY jenis, nama, id', [$pk]) : qall('SELECT * FROM bhp ORDER BY puskesmas_id, jenis, nama, id'));
     $S['setup'] = $role === 'binaan' ? setup_status($pk) : null;
     if ($role === 'admin') {
-        $S['users'] = array_map('out_user', qall('SELECT * FROM users ORDER BY role, id'));
+        $S['users'] = array_map('out_user', qall("SELECT * FROM users WHERE role IN ('admin','pembina','binaan') ORDER BY role, id"));
         $S['sheets'] = []; $S['cases'] = []; $S['risks'] = [];
     } else {
         $S['users'] = [];
@@ -252,18 +250,7 @@ function app_state(array $u): array
         qall('SELECT n.*, (SELECT COUNT(*) FROM notif_reads r WHERE r.notif_id = n.id AND r.user_id = ?) AS rd FROM notifs n WHERE n.to_key = ? ORDER BY n.id DESC LIMIT 300', [$u['id'], $key]));
     $kopKey = $role === 'binaan' ? 'pkm:' . $pk : ($role === 'pembina' ? 'pembina' : null);
     $S['kop'] = $kopKey ? kop_meta($kopKey) : null;
-    $S['bl'] = bl_state($u);
-    return $S;
-}
-/** Status aplikasi untuk Fasilitator dan sub-akun peserta: hanya data pembelajaran */
-function app_state_bl(array $u): array
-{
-    $S = ['me' => out_user($u), 'settings' => ['tampilan' => setting('tampilan', [])], 'params' => [], 'alats' => [], 'personel' => [], 'bhp' => [], 'sheets' => [], 'cases' => [], 'risks' => [], 'users' => [],
-        'setup' => null, 'kop' => null, 'notifs' => [], 'bl' => bl_state($u)];
-    $S['pkms'] = $u['role'] === 'peserta' ? array_map(fn($p) => ['id' => (int)$p['id'], 'kode' => $p['kode'], 'name' => $p['nama'], 'active' => (bool)$p['aktif']], qall('SELECT * FROM puskesmas WHERE id = ?', [$u['puskesmas_id']]))
-        : array_map(fn($p) => ['id' => (int)$p['id'], 'kode' => $p['kode'], 'name' => $p['nama'], 'active' => (bool)$p['aktif']], qall('SELECT * FROM puskesmas ORDER BY kode'));
-    if ($u['role'] === 'peserta' && $u['personel_id']) $S['personel'] = out_personel_list(qall('SELECT * FROM personel WHERE id = ?', [$u['personel_id']]));
-    $S['bobot'] = BL_BOBOT;
+    if ($role === 'binaan') $S['blUrl'] = bl_url();
     return $S;
 }
 
@@ -313,13 +300,11 @@ function out_personel_list(array $rows): array
     $fotos = [];
     foreach (qall("SELECT id, personel_id, at, by_name FROM personel_foto WHERE personel_id IN ($ids) ORDER BY id DESC") as $f)
         $fotos[(int)$f['personel_id']][] = ['id' => (int)$f['id'], 'at' => $f['at'], 'by' => (string)$f['by_name']];
-    $subs = [];
-    foreach (qall("SELECT personel_id, username FROM users WHERE role = 'peserta' AND personel_id IN ($ids)") as $s) $subs[(int)$s['personel_id']] = $s['username'];
     return array_map(fn($p) => [
         'id' => (int)$p['id'], 'pkmId' => (int)$p['puskesmas_id'], 'name' => $p['nama'], 'nip' => (string)$p['nip'], 'jabatan' => (string)$p['jabatan'],
         'pendidikan' => (string)$p['pendidikan'], 'strNo' => (string)$p['str_no'], 'strBerlaku' => (string)$p['str_berlaku'], 'sipNo' => (string)$p['sip_no'],
         'pelatihan' => jdec($p['pelatihan']), 'fotoId' => $p['foto_id'] === null ? null : (int)$p['foto_id'], 'fotoAt' => $p['foto_at'],
-        'fotos' => $fotos[(int)$p['id']] ?? [], 'active' => (bool)$p['aktif'], 'subUser' => $subs[(int)$p['id']] ?? null,
+        'fotos' => $fotos[(int)$p['id']] ?? [], 'active' => (bool)$p['aktif'],
     ], $rows);
 }
 function out_bhp(array $b, bool $used): array
@@ -367,5 +352,3 @@ function setup_check(int $pkmId): void
     q('UPDATE puskesmas SET setup_at = ? WHERE id = ?', [now_str(), $pkmId]);
     audit('setup_done', ['pkm' => $pkmId]);
 }
-
-require_once __DIR__ . '/belajar.php';

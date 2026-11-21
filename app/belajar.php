@@ -1,5 +1,6 @@
 <?php
-/* Si PANDU – Peningkatan Kompetensi SDM (pembelajaran): kegiatan, segmen, peserta, soal, penilaian, rekap. */
+/* Subdomain pembelajaran (Si PANDU – Peningkatan Kapasitas Kompetensi SDM): kegiatan, segmen, peserta, soal, penilaian, rekap.
+   Akun memakai tabel bl_users (terpisah dari Si PANDU). Peran: admin, pembina, fasil (Fasilitator), pengawas, peserta. */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
 const BL_JENIS = ['pretest', 'materi', 'praktik', 'posttest', 'penutup'];
@@ -9,6 +10,8 @@ const BL_NEVAL = 10;
 const BL_BOBOT = ['post' => 30, 'praktik' => 30, 'sikap' => 25, 'progres' => 15];
 const BL_SURAT_MAX = 1048576;      // 1 MB
 const BL_MATERI_MAX = 10485760;    // 10 MB
+/** Status pendaftaran yang mengisi kuota */
+const BL_ISI_KUOTA = ['menunggu', 'lengkapi', 'diterima'];
 
 /* ---------- baris & hak akses ---------- */
 function bl_keg(int $id): ?array { return q1('SELECT * FROM bl_keg WHERE id = ?', [$id]); }
@@ -35,6 +38,11 @@ function bl_can_open(array $u, array $k): bool
     return in_array($u['role'], ['pembina', 'fasil'], true) && in_array((int)$u['id'], bl_ids($k['pembuka']), true) && bl_is_staff($u, $k);
 }
 /** Baris peserta (diterima) milik sub-akun ini */
+/** Pengawas yang ditugaskan pada kegiatan ini */
+function bl_is_pengawas(array $u, array $k): bool
+{
+    return $u['role'] === 'pengawas' && in_array((int)$u['id'], bl_ids($k['pengawas']), true);
+}
 function bl_me_peserta(array $u, int $kegId): ?array
 {
     if ($u['role'] !== 'peserta') return null;
@@ -43,16 +51,29 @@ function bl_me_peserta(array $u, int $kegId): ?array
 function bl_can_view(array $u, array $k): bool
 {
     if (bl_is_staff($u, $k)) return true;
-    if ($u['role'] === 'binaan') return $k['status'] === 'terbit' || ($k['status'] === 'arsip' && qval('SELECT COUNT(*) FROM bl_peserta WHERE keg_id = ? AND puskesmas_id = ?', [$k['id'], $u['puskesmas_id']]));
+    if (bl_is_pengawas($u, $k)) return $k['status'] !== 'draf';
     if ($u['role'] === 'peserta') return $k['status'] === 'terbit' || ($k['status'] === 'arsip' && (bool)bl_my_reg($u, (int)$k['id']));
     return false;
+}
+
+/* ---------- kuota ---------- */
+/** Jumlah pendaftar yang mengisi kuota (menunggu, diminta melengkapi, diterima) */
+function bl_terisi(int $kegId): int
+{
+    return (int)qval("SELECT COUNT(*) FROM bl_peserta WHERE keg_id = ? AND status IN ('menunggu','lengkapi','diterima')", [$kegId]);
+}
+/** Formulir pendaftaran terbuka: terbit, pendaftaran dibuka Admin, dan kuota belum penuh */
+function bl_form_open(array $k): bool
+{
+    return $k['status'] === 'terbit' && (bool)$k['daftar_buka'] && bl_terisi((int)$k['id']) < (int)$k['kuota'];
 }
 
 /* ---------- keluaran ---------- */
 function bl_out_keg(array $k): array
 {
     return ['id' => (int)$k['id'], 'title' => $k['judul'], 'org' => (string)$k['penyelenggara'], 'place' => (string)$k['lokasi'], 'start' => (string)$k['tgl_mulai'], 'end' => (string)$k['tgl_selesai'],
-        'desc' => (string)$k['deskripsi'], 'status' => $k['status'], 'open' => (bool)$k['daftar_buka'], 'fasil' => bl_ids($k['fasil']), 'pembuka' => bl_ids($k['pembuka'])];
+        'desc' => (string)$k['deskripsi'], 'status' => $k['status'], 'open' => (bool)$k['daftar_buka'], 'fasil' => bl_ids($k['fasil']), 'pembuka' => bl_ids($k['pembuka']),
+        'pengawas' => bl_ids($k['pengawas']), 'kuota' => (int)$k['kuota'], 'terisi' => bl_terisi((int)$k['id']), 'formOpen' => bl_form_open($k)];
 }
 function bl_out_seg(array $s): array
 {
@@ -62,19 +83,19 @@ function bl_out_seg(array $s): array
 }
 function bl_pic_name(array $s): string
 {
-    if ($s['pic_id']) { $n = qval('SELECT nama FROM users WHERE id = ?', [$s['pic_id']]); if ($n) return (string)$n; }
+    if ($s['pic_id']) { $n = qval('SELECT nama FROM bl_users WHERE id = ?', [$s['pic_id']]); if ($n) return (string)$n; }
     return (string)$s['pic_nama'];
 }
 function bl_out_peserta(array $p, bool $withUser = true): array
 {
-    $o = ['id' => (int)$p['id'], 'kegId' => (int)$p['keg_id'], 'pkmId' => (int)$p['puskesmas_id'], 'personelId' => (int)$p['personel_id'], 'name' => $p['nama'], 'jabatan' => (string)$p['jabatan'],
-        'nip' => (string)$p['nip'], 'hasSurat' => (bool)$p['surat'], 'status' => $p['status'], 'msg' => (string)$p['pesan'], 'sentAt' => $p['kirim_at'], 'verAt' => $p['verif_at'], 'verBy' => (string)$p['verif_by']];
-    if ($withUser) $o['username'] = $p['user_id'] ? (string)qval('SELECT username FROM users WHERE id = ?', [$p['user_id']]) : null;
+    $o = ['id' => (int)$p['id'], 'kegId' => (int)$p['keg_id'], 'name' => $p['nama'], 'jabatan' => (string)$p['jabatan'], 'nip' => (string)$p['nip'], 'instansi' => (string)$p['instansi'],
+        'email' => (string)$p['email'], 'hp' => (string)$p['hp'], 'hasSurat' => (bool)$p['surat'], 'status' => $p['status'], 'msg' => (string)$p['pesan'], 'sentAt' => $p['kirim_at'], 'verAt' => $p['verif_at'], 'verBy' => (string)$p['verif_by']];
+    if ($withUser) $o['username'] = (string)qval('SELECT username FROM bl_users WHERE id = ?', [$p['user_id']]);
     return $o;
 }
 function bl_profil(int $userId): array
 {
-    $u = q1('SELECT id, nama, role FROM users WHERE id = ?', [$userId]);
+    $u = q1('SELECT id, nama, role FROM bl_users WHERE id = ?', [$userId]);
     $p = q1('SELECT * FROM bl_profil WHERE user_id = ?', [$userId]) ?: [];
     return ['id' => $userId, 'name' => $u ? $u['nama'] : '?', 'role' => $u ? $u['role'] : '', 'instansi' => (string)($p['instansi'] ?? ''), 'jabatan' => (string)($p['jabatan'] ?? ''),
         'ringkasan' => (string)($p['ringkasan'] ?? ''), 'foto' => !empty($p['foto']), 'v' => substr(sha1((string)($p['updated_at'] ?? '')), 0, 6)];
@@ -179,7 +200,7 @@ function bl_scores(array $k): array
         }
         $complete = count($segs) ? count(array_intersect(array_map(fn($s) => (int)$s['id'], $segs), array_keys($done))) / count($segs) * 100 : 0;
         $terbaik = $bobot['post'] * ($vPost ?? 0) / 100 + $bobot['praktik'] * ($vPraktik ?? 0) / 100 + $bobot['sikap'] * ($vSikap ?? 0) / 100 + $bobot['progres'] * max(0, min(100, $gain ?? 0)) / 100;
-        $rows[$pid] = ['pesertaId' => $pid, 'name' => $p['nama'], 'pkmId' => (int)$p['puskesmas_id'], 'pre' => bl_round($vPre), 'post' => bl_round($vPost), 'progres' => bl_round($prog), 'gain' => bl_round($gain),
+        $rows[$pid] = ['pesertaId' => $pid, 'name' => $p['nama'], 'instansi' => (string)$p['instansi'], 'pre' => bl_round($vPre), 'post' => bl_round($vPost), 'progres' => bl_round($prog), 'gain' => bl_round($gain),
             'sikap' => bl_round($vSikap), 'praktik' => bl_round($vPraktik), 'complete' => bl_round($complete), 'terbaik' => bl_round($terbaik), 'doneSegs' => array_map('intval', array_keys($done)),
             'answered' => $dijawab[$pid] ?? (object)[], 'allDone' => count($segs) > 0 && count($done) >= count($segs)];
     }
@@ -212,21 +233,29 @@ function bl_eval_summary(array $k): array
 function bl_state(array $u): array
 {
     $role = $u['role'];
-    $rows = [];
-    if ($role === 'admin' || $role === 'pembina') $rows = qall('SELECT * FROM bl_keg ORDER BY id DESC');
-    elseif ($role === 'fasil') $rows = array_values(array_filter(qall('SELECT * FROM bl_keg ORDER BY id DESC'), fn($k) => bl_is_staff($u, $k)));
-    elseif ($role === 'binaan') $rows = array_values(array_filter(qall("SELECT * FROM bl_keg WHERE status <> 'draf' ORDER BY id DESC"), fn($k) => bl_can_view($u, $k)));
-    elseif ($role === 'peserta') $rows = array_values(array_filter(qall("SELECT * FROM bl_keg WHERE status <> 'draf' ORDER BY id DESC"), fn($k) => bl_can_view($u, $k)));
+    $all = qall('SELECT * FROM bl_keg ORDER BY id DESC');
+    if ($role === 'admin' || $role === 'pembina') $rows = $all;
+    elseif ($role === 'fasil') $rows = array_values(array_filter($all, fn($k) => bl_is_staff($u, $k)));
+    else $rows = array_values(array_filter($all, fn($k) => $k['status'] !== 'draf' && bl_can_view($u, $k)));
     $out = [];
     foreach ($rows as $k) {
         $o = bl_out_keg($k);
         $o['nPeserta'] = (int)qval("SELECT COUNT(*) FROM bl_peserta WHERE keg_id = ? AND status = 'diterima'", [$k['id']]);
         if ($role === 'admin') $o['nWaiting'] = (int)qval("SELECT COUNT(*) FROM bl_peserta WHERE keg_id = ? AND status = 'menunggu'", [$k['id']]);
-        if ($role === 'binaan') $o['mine'] = array_map(fn($p) => ['status' => $p['status']], qall('SELECT status FROM bl_peserta WHERE keg_id = ? AND puskesmas_id = ?', [$k['id'], $u['puskesmas_id']]));
         if ($role === 'peserta') { $r = bl_my_reg($u, (int)$k['id']); $o['myStatus'] = $r ? $r['status'] : null; }
         $out[] = $o;
     }
     return $out;
+}
+
+/** Nama peraih predikat (untuk peserta dan Pengawas) */
+function bl_predikat_names(?array $pred, int $pidMe = 0): ?array
+{
+    if (!$pred) return null;
+    return array_map(fn($ids) => array_map(function ($i) use ($pidMe) {
+        $p = q1('SELECT nama, instansi FROM bl_peserta WHERE id = ?', [$i]);
+        return ['name' => (string)($p['nama'] ?? ''), 'instansi' => (string)($p['instansi'] ?? ''), 'me' => $i === $pidMe];
+    }, $ids), $pred);
 }
 
 /* ---------- rincian satu kegiatan, sesuai peran ---------- */
@@ -251,16 +280,26 @@ function bl_detail(array $u, array $k): array
         $d['scores'] = bl_scores($k);
         if ($role !== 'fasil') $d['eval'] = bl_eval_summary($k);
         $d['staffUsers'] = array_map(fn($x) => ['id' => (int)$x['id'], 'role' => $x['role'], 'name' => $x['nama'], 'active' => (bool)$x['aktif']],
-            qall("SELECT id, role, nama, aktif FROM users WHERE role IN ('pembina','fasil') ORDER BY role, nama"));
-    } elseif ($role === 'binaan') {
-        $mine = qall('SELECT * FROM bl_peserta WHERE keg_id = ? AND puskesmas_id = ? ORDER BY id', [$kid, $u['puskesmas_id']]);
-        $d['peserta'] = array_map('bl_out_peserta', $mine);
-        $sc = bl_scores($k); $ids = array_map(fn($p) => (int)$p['id'], $mine);
-        $d['scores'] = ['rows' => array_values(array_filter($sc['rows'], fn($r) => in_array($r['pesertaId'], $ids, true))), 'final' => $sc['final'], 'nSoal' => $sc['nSoal']];
+            qall("SELECT id, role, nama, aktif FROM bl_users WHERE role IN ('pembina','fasil','pengawas') ORDER BY role, nama"));
+    } elseif (bl_is_pengawas($u, $k)) {
+        // Pengawas: progres per segmen (timeline sesuai rundown) dan hasil akhir
+        $sc = bl_scores($k);
+        $n = count($sc['rows']);
+        $d['timeline'] = array_map(function ($s) use ($sc, $n) {
+            $done = count(array_filter($sc['rows'], fn($r) => in_array((int)$s['id'], $r['doneSegs'], true)));
+            $o = ['segId' => (int)$s['id'], 'done' => $done, 'n' => $n];
+            if (in_array($s['jenis'], ['pretest', 'posttest'], true)) {
+                $vals = array_values(array_filter(array_map(fn($r) => $s['jenis'] === 'pretest' ? $r['pre'] : $r['post'], $sc['rows']), fn($v) => $v !== null));
+                $o['avg'] = $vals ? round(array_sum($vals) / count($vals), 1) : null;
+            }
+            return $o;
+        }, $segs);
+        $d['scores'] = ['rows' => $sc['rows'], 'final' => $sc['final'], 'nSoal' => $sc['nSoal'], 'bobot' => $sc['bobot']];
+        $d['predikat'] = bl_predikat_names($sc['predikat']);
     } elseif ($role === 'peserta' && !bl_me_peserta($u, $kid)) {
         $reg = bl_my_reg($u, $kid);
-        $per = $u['personel_id'] ? q1('SELECT * FROM personel WHERE id = ?', [$u['personel_id']]) : null;
-        $d = ['keg' => bl_out_keg($k), 'reg' => $reg ? bl_out_peserta($reg, false) : null, 'self' => ['name' => $per ? $per['nama'] : $u['nama'], 'jabatan' => (string)($per['jabatan'] ?? $u['jabatan']), 'nip' => (string)($per['nip'] ?? $u['nip'])]];
+        $d = ['keg' => bl_out_keg($k), 'reg' => $reg ? bl_out_peserta($reg, false) : null,
+            'self' => ['name' => $u['nama'], 'jabatan' => '', 'nip' => '', 'instansi' => (string)$u['instansi'], 'email' => (string)$u['email'], 'hp' => (string)$u['hp']]];
     } elseif ($role === 'peserta') {
         $me = bl_me_peserta($u, $kid);
         $pid = (int)$me['id'];
@@ -281,14 +320,38 @@ function bl_detail(array $u, array $k): array
         $d['tests'] = (object)$d['tests'];
         $ev = []; foreach (qall('SELECT * FROM bl_eval WHERE peserta_id = ?', [$pid]) as $e) $ev[(int)$e['narsum_id']][(int)$e['aspek']] = (int)$e['nilai'];
         $d['myEval'] = (object)array_map(fn($x) => (object)$x, $ev);
-        $sc = bl_scores($k);
-        $mine = null; foreach ($sc['rows'] as $r) if ($r['pesertaId'] === $pid) $mine = $r;
-        // hasil tampil setelah peserta menyelesaikan semua segmen, atau setelah semua segmen ditutup
-        $d['result'] = ($mine && ($mine['allDone'] || $sc['final'])) ? ['mine' => $mine, 'n' => count($sc['rows']), 'final' => $sc['final'],
-            'predikat' => $sc['predikat'] ? array_map(fn($ids) => array_map(fn($i) => ['name' => (string)qval('SELECT nama FROM bl_peserta WHERE id = ?', [$i]), 'pkm' => (string)qval('SELECT p.nama FROM puskesmas p JOIN bl_peserta b ON b.puskesmas_id = p.id WHERE b.id = ?', [$i]), 'me' => $i === $pid], $ids), $sc['predikat']) : null]
-            : null;
+        $d['result'] = bl_my_result($k, $pid);
     }
     return $d;
+}
+
+/** Hasil peserta: tampil setelah peserta menyelesaikan semua segmen, atau setelah semua segmen ditutup */
+function bl_my_result(array $k, int $pid): ?array
+{
+    $sc = bl_scores($k);
+    $mine = null; foreach ($sc['rows'] as $r) if ($r['pesertaId'] === $pid) $mine = $r;
+    if (!$mine || !($mine['allDone'] || $sc['final'])) return null;
+    return ['mine' => $mine, 'n' => count($sc['rows']), 'final' => $sc['final'], 'predikat' => bl_predikat_names($sc['predikat'], $pid)];
+}
+
+/** Riwayat saya: semua pendaftaran peserta beserta status dan hasilnya */
+function bl_riwayat(array $u): array
+{
+    $out = [];
+    foreach (qall('SELECT p.*, k.judul, k.penyelenggara, k.tgl_mulai, k.tgl_selesai, k.status AS kstatus FROM bl_peserta p JOIN bl_keg k ON k.id = p.keg_id WHERE p.user_id = ? ORDER BY k.tgl_mulai DESC, p.id DESC', [$u['id']]) as $p) {
+        $o = ['kegId' => (int)$p['keg_id'], 'title' => $p['judul'], 'org' => (string)$p['penyelenggara'], 'start' => (string)$p['tgl_mulai'], 'end' => (string)$p['tgl_selesai'], 'kegStatus' => $p['kstatus'],
+            'status' => $p['status'], 'sentAt' => $p['kirim_at'], 'result' => null];
+        if ($p['status'] === 'diterima') {
+            $r = bl_my_result(bl_keg((int)$p['keg_id']), (int)$p['id']);
+            if ($r) {
+                $mine = $r['mine'];
+                $pred = $r['predikat'] ? array_keys(array_filter($r['predikat'], fn($list) => (bool)array_filter($list, fn($x) => $x['me']))) : [];
+                $o['result'] = ['pre' => $mine['pre'], 'post' => $mine['post'], 'progres' => $mine['progres'], 'complete' => $mine['complete'], 'rank' => $mine['rank'], 'n' => $r['n'], 'final' => $r['final'], 'predikat' => $pred];
+            }
+        }
+        $out[] = $o;
+    }
+    return $out;
 }
 
 /* ---------- berkas PDF ---------- */
@@ -303,27 +366,23 @@ function bl_pdf_upload(string $field, int $max, string $sub): array
     return [$file, strlen($raw)];
 }
 
-/* ---------- sub-akun peserta ---------- */
-function bl_slug(string $nama): string
+/* ---------- akun subdomain ---------- */
+function bl_out_user(array $u): array
 {
-    $nama = preg_replace('/^(dr|drg|ns|apt|h|hj|ir)\.?\s+/i', '', trim($nama));
-    $w = strtolower((string)preg_replace('/[^A-Za-z]/', '', (string)strtok($nama, " ,.")));
-    return substr($w !== '' ? $w : 'peserta', 0, 20);
+    return ['id' => (int)$u['id'], 'role' => $u['role'], 'name' => $u['nama'], 'username' => $u['username'], 'email' => (string)$u['email'], 'hp' => (string)$u['hp'], 'instansi' => (string)$u['instansi'],
+        'active' => (bool)$u['aktif'], 'mustChange' => (bool)$u['must_change'], 'createdAt' => $u['created_at'], 'lastLogin' => $u['last_login']];
 }
-/** Sub-akun personel Puskesmas binaan (dibuat saat data personel disimpan); mengembalikan [user_id, username, sandi sementara|null bila sudah ada] */
-function bl_sub_for_personel(array $per): array
+/** Status aplikasi subdomain */
+function bl_app_state(array $u): array
 {
-    $ex = q1("SELECT * FROM users WHERE role = 'peserta' AND personel_id = ?", [$per['id']]);
-    if ($ex) return [(int)$ex['id'], $ex['username'], null];
-    $base = (string)(qval("SELECT username FROM users WHERE role = 'binaan' AND puskesmas_id = ? ORDER BY id LIMIT 1", [$per['puskesmas_id']]) ?: 'p' . (int)$per['puskesmas_id']);
-    $un = $base . '.' . bl_slug($per['nama']); $try = $un; $i = 2;
-    while (qval('SELECT COUNT(*) FROM users WHERE username = ?', [$try])) $try = $un . $i++;
-    $pw = temp_password();
-    $id = sp_insert('users', ['role' => 'peserta', 'nama' => $per['nama'], 'username' => $try, 'pass_hash' => password_hash($pw, PASSWORD_DEFAULT), 'must_change' => 1,
-        'puskesmas_id' => $per['puskesmas_id'], 'personel_id' => $per['id'], 'nip' => (string)$per['nip'], 'jabatan' => (string)$per['jabatan'], 'aktif' => $per['aktif'] ? 1 : 0, 'created_at' => now_str()]);
-    return [(int)$id, $try, $pw];
+    $S = ['me' => bl_out_user($u), 'settings' => ['tampilan' => setting('tampilan', [])], 'bl' => bl_state($u), 'bobot' => BL_BOBOT];
+    if ($u['role'] === 'admin') $S['users'] = array_map('bl_out_user', qall('SELECT * FROM bl_users ORDER BY role, nama, id'));
+    return $S;
 }
-/** Baris pendaftaran milik sub-akun ini (status apa pun) */
+function bl_valid_email(string $e): bool { return (bool)filter_var($e, FILTER_VALIDATE_EMAIL); }
+function bl_valid_hp(string $h): bool { return (bool)preg_match('/^\+?[0-9][0-9 \-]{7,19}$/', $h); }
+
+/** Baris pendaftaran milik akun peserta ini (status apa pun) */
 function bl_my_reg(array $u, int $kegId): ?array
 {
     if ($u['role'] !== 'peserta') return null;
@@ -337,7 +396,7 @@ function bl_fasil_cleanup(): void
     foreach (qall("SELECT fasil FROM bl_keg WHERE status <> 'arsip'") as $k) foreach (bl_ids($k['fasil']) as $i) $active[$i] = true;
     $assigned = [];
     foreach (qall('SELECT fasil FROM bl_keg') as $k) foreach (bl_ids($k['fasil']) as $i) $assigned[$i] = true;
-    foreach (array_keys($assigned) as $id) if (!isset($active[$id])) q("UPDATE users SET aktif = 0 WHERE id = ? AND role = 'fasil'", [$id]);
+    foreach (array_keys($assigned) as $id) if (!isset($active[$id])) q("UPDATE bl_users SET aktif = 0 WHERE id = ? AND role = 'fasil'", [$id]);
 }
 
 /* ---------- aksi API (semua diawali bl_) ---------- */
@@ -366,7 +425,9 @@ function bl_api(string $a, array $d, array $u)
             need($isA);
             $judul = str_in($d, 'title', 200);
             need($judul !== '', 'bl.galat.isi_judul', 400);
-            $id = sp_insert('bl_keg', ['judul' => $judul, 'penyelenggara' => str_in($d, 'org', 200), 'status' => 'draf', 'daftar_buka' => 0, 'pembuka' => '[]', 'fasil' => '[]', 'created_at' => now_str()]);
+            $kuota = trim((string)($d['kuota'] ?? ''));
+            need(ctype_digit($kuota) && (int)$kuota >= 1 && (int)$kuota <= 10000, 'bl.galat.kuota', 400);
+            $id = sp_insert('bl_keg', ['judul' => $judul, 'penyelenggara' => str_in($d, 'org', 200), 'kuota' => (int)$kuota, 'status' => 'draf', 'daftar_buka' => 0, 'pembuka' => '[]', 'fasil' => '[]', 'pengawas' => '[]', 'created_at' => now_str()]);
             foreach (['pretest', 'materi', 'posttest', 'penutup'] as $i => $j)
                 sp_insert('bl_seg', ['keg_id' => $id, 'urut' => $i + 1, 'jenis' => $j, 'judul' => t('bl.seg_judul.' . $j, ['n' => 1]), 'sesi' => '[]', 'status' => 'belum']);
             audit('bl_keg_add', ['id' => $id]);
@@ -376,6 +437,14 @@ function bl_api(string $a, array $d, array $u)
             $k = $kegOf(int_in($d, 'id')); $notArsip($k);
             $map = ['title' => 'judul', 'org' => 'penyelenggara', 'place' => 'lokasi', 'start' => 'tgl_mulai', 'end' => 'tgl_selesai', 'desc' => 'deskripsi'];
             $kk = (string)($d['k'] ?? '');
+            if ($kk === 'kuota') {
+                $v = trim((string)($d['v'] ?? ''));
+                need(ctype_digit($v) && (int)$v >= 1 && (int)$v <= 10000, 'bl.galat.kuota', 400);
+                need((int)$v >= (int)qval("SELECT COUNT(*) FROM bl_peserta WHERE keg_id = ? AND status = 'diterima'", [$k['id']]), 'bl.galat.kuota_kurang', 400);
+                q('UPDATE bl_keg SET kuota = ? WHERE id = ?', [(int)$v, $k['id']]);
+                audit('bl_keg_kuota', ['id' => $k['id'], 'v' => (int)$v]);
+                return null;
+            }
             need(isset($map[$kk]), 'galat.data_tidak_valid', 400);
             $v = in_array($kk, ['start', 'end'], true) ? date_in($d, 'v') : str_in($d, 'v', $kk === 'desc' ? 4000 : 200);
             need($kk !== 'title' || $v !== '', 'bl.galat.isi_judul', 400);
@@ -404,12 +473,12 @@ function bl_api(string $a, array $d, array $u)
             need($isA);
             $k = $kegOf(int_in($d, 'id')); $notArsip($k);
             $kk = (string)($d['k'] ?? '');
-            need(in_array($kk, ['fasil', 'pembuka'], true), 'galat.data_tidak_valid', 400);
+            need(in_array($kk, ['fasil', 'pembuka', 'pengawas'], true), 'galat.data_tidak_valid', 400);
             $ids = array_values(array_unique(array_map('intval', (array)($d['ids'] ?? []))));
-            $roles = $kk === 'fasil' ? ['fasil'] : ['pembina', 'fasil'];
-            foreach ($ids as $i) need(in_array((string)qval('SELECT role FROM users WHERE id = ?', [$i]), $roles, true), 'galat.data_tidak_valid', 400);
+            $roles = ['fasil' => ['fasil'], 'pembuka' => ['pembina', 'fasil'], 'pengawas' => ['pengawas']][$kk];
+            foreach ($ids as $i) need(in_array((string)qval('SELECT role FROM bl_users WHERE id = ?', [$i]), $roles, true), 'galat.data_tidak_valid', 400);
             q("UPDATE bl_keg SET $kk = ? WHERE id = ?", [jenc($ids), $k['id']]);
-            if ($kk === 'fasil') foreach ($ids as $i) q("UPDATE users SET aktif = 1 WHERE id = ? AND role = 'fasil'", [$i]);
+            if ($kk === 'fasil') foreach ($ids as $i) q("UPDATE bl_users SET aktif = 1 WHERE id = ? AND role = 'fasil'", [$i]);
             return null;
 
         /* --- Admin: segmen --- */
@@ -433,7 +502,7 @@ function bl_api(string $a, array $d, array $u)
             need(isset($map[$kk]), 'galat.data_tidak_valid', 400);
             if ($kk === 'date') $v = date_in($d, 'v');
             elseif ($kk === 'from' || $kk === 'to') { $v = str_in($d, 'v', 5); need($v === '' || (bool)preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v), 'bl.galat.jam', 400); }
-            elseif ($kk === 'picId') { $v = int_in($d, 'v') ?: null; need($v === null || in_array((string)qval('SELECT role FROM users WHERE id = ?', [$v]), ['pembina', 'fasil'], true), 'galat.data_tidak_valid', 400); }
+            elseif ($kk === 'picId') { $v = int_in($d, 'v') ?: null; need($v === null || in_array((string)qval('SELECT role FROM bl_users WHERE id = ?', [$v]), ['pembina', 'fasil'], true), 'galat.data_tidak_valid', 400); }
             else $v = str_in($d, 'v', 200);
             q("UPDATE bl_seg SET {$map[$kk]} = ? WHERE id = ?", [$v, $s['id']]);
             return null;
@@ -502,42 +571,87 @@ function bl_api(string $a, array $d, array $u)
             need($v === 'diterima' || $msg !== '', 'bl.galat.isi_pesan', 400);
             $res = null;
             q('UPDATE bl_peserta SET status = ?, pesan = ?, verif_at = ?, verif_by = ? WHERE id = ?', [$v, $msg, now_str(), $u['nama'], $p['id']]);
-            notify('pkm:' . $p['puskesmas_id'], t('bl.notif.' . $v, ['nama' => $p['nama'], 'keg' => $k['judul']]), 'bl-' . $k['id']);
             audit('bl_verif', ['peserta' => $p['id'], 'v' => $v]);
             return $res;
 
-        /* --- Sub-akun: mendaftarkan diri; akun Puskesmas: mereset sandi sub-akun personelnya --- */
+        /* --- Peserta: mendaftarkan diri pada kegiatan --- */
         case 'bl_daftar':
-            need($role === 'peserta' && $u['personel_id']);
-            $k = $kegOf(int_in($d, 'kegId'));
-            need($k['status'] === 'terbit' && $k['daftar_buka'], 'bl.galat.pendaftaran_tutup', 400);
-            need(!bl_my_reg($u, (int)$k['id']), 'bl.galat.sudah_terdaftar', 400);
-            $nama = str_in($d, 'name', 200); $jab = str_in($d, 'jabatan', 150); $nip = str_in($d, 'nip', 60);
-            need($nama !== '' && $jab !== '' && $nip !== '', 'bl.galat.lengkapi_data', 400);
-            [$file] = bl_pdf_upload('surat', BL_SURAT_MAX, 'surat');
-            sp_insert('bl_peserta', ['keg_id' => $k['id'], 'puskesmas_id' => $u['puskesmas_id'], 'personel_id' => $u['personel_id'], 'nama' => $nama, 'jabatan' => $jab, 'nip' => $nip, 'surat' => $file, 'status' => 'menunggu', 'user_id' => $u['id'], 'kirim_at' => now_str()]);
-            audit('bl_daftar', ['keg' => $k['id']]);
-            return null;
         case 'bl_kirim_ulang':
             need($role === 'peserta');
             $k = $kegOf(int_in($d, 'kegId')); $notArsip($k);
+            $f = ['nama' => str_in($d, 'name', 200), 'jabatan' => str_in($d, 'jabatan', 150), 'nip' => str_in($d, 'nip', 60), 'instansi' => str_in($d, 'instansi', 200), 'email' => str_in($d, 'email', 150), 'hp' => str_in($d, 'hp', 30)];
+            foreach ($f as $v) need($v !== '', 'bl.galat.lengkapi_data', 400);
+            need(bl_valid_email($f['email']), 'bl.galat.email', 400);
+            need(bl_valid_hp($f['hp']), 'bl.galat.hp', 400);
+            if ($a === 'bl_daftar') {
+                // pemeriksaan kuota dan pendaftaran dikunci bersama agar kiriman bersamaan tidak melampaui kuota
+                sp_db()->beginTransaction();
+                try {
+                    $k = sp_driver() === 'mysql' ? q1('SELECT * FROM bl_keg WHERE id = ? FOR UPDATE', [$k['id']]) : bl_keg((int)$k['id']);
+                    need($k['status'] === 'terbit' && $k['daftar_buka'], 'bl.galat.pendaftaran_tutup', 400);
+                    need(bl_terisi((int)$k['id']) < (int)$k['kuota'], 'bl.galat.kuota_penuh', 400);
+                    need(!bl_my_reg($u, (int)$k['id']), 'bl.galat.sudah_terdaftar', 400);
+                    [$file] = bl_pdf_upload('surat', BL_SURAT_MAX, 'surat');
+                    sp_insert('bl_peserta', $f + ['keg_id' => $k['id'], 'user_id' => $u['id'], 'surat' => $file, 'status' => 'menunggu', 'kirim_at' => now_str()]);
+                    sp_db()->commit();
+                } catch (Throwable $e) { if (sp_db()->inTransaction()) sp_db()->rollBack(); throw $e; }
+                audit('bl_daftar', ['keg' => $k['id']]);
+                return null;
+            }
             $p = bl_my_reg($u, (int)$k['id']);
             need($p && $p['status'] === 'lengkapi', 'bl.galat.tidak_bisa_kirim_ulang', 400);
-            $nama = str_in($d, 'name', 200); $jab = str_in($d, 'jabatan', 150); $nip = str_in($d, 'nip', 60);
-            need($nama !== '' && $jab !== '' && $nip !== '', 'bl.galat.lengkapi_data', 400);
             $file = $p['surat'];
             if (isset($_FILES['surat']) && $_FILES['surat']['error'] !== UPLOAD_ERR_NO_FILE) [$file] = bl_pdf_upload('surat', BL_SURAT_MAX, 'surat');
-            q("UPDATE bl_peserta SET nama = ?, jabatan = ?, nip = ?, surat = ?, status = 'menunggu', kirim_at = ? WHERE id = ?", [$nama, $jab, $nip, $file, now_str(), $p['id']]);
+            q("UPDATE bl_peserta SET nama = ?, jabatan = ?, nip = ?, instansi = ?, email = ?, hp = ?, surat = ?, status = 'menunggu', kirim_at = ? WHERE id = ?", [$f['nama'], $f['jabatan'], $f['nip'], $f['instansi'], $f['email'], $f['hp'], $file, now_str(), $p['id']]);
             audit('bl_kirim_ulang', ['peserta' => $p['id']]);
             return null;
-        case 'bl_reset_sub':
-            need($role === 'binaan');
-            $sub = q1("SELECT * FROM users WHERE role = 'peserta' AND personel_id = ? AND puskesmas_id = ?", [int_in($d, 'personelId'), $u['puskesmas_id']]);
-            need((bool)$sub, 'bl.galat.tidak_ada_sub', 404);
+        case 'bl_riwayat':
+            need($role === 'peserta');
+            return bl_riwayat($u);
+
+        /* --- Admin: akun subdomain --- */
+        case 'bl_user_add':
+            need($isA);
+            $r = (string)($d['role'] ?? '');
+            need(in_array($r, ['pembina', 'fasil', 'pengawas'], true), 'galat.data_tidak_valid', 400);
+            $uname = strtolower(str_in($d, 'username', 40)); $nama = str_in($d, 'name', 150);
+            need((bool)preg_match('/^[a-z0-9._-]{3,40}$/', $uname), 'galat.username_format', 400);
+            need($nama !== '', 'galat.isi_nama', 400);
+            need(!qval('SELECT COUNT(*) FROM bl_users WHERE username = ?', [$uname]), 'galat.username_dipakai', 400);
             $pw = temp_password();
-            q('UPDATE users SET pass_hash = ?, must_change = 1 WHERE id = ?', [password_hash($pw, PASSWORD_DEFAULT), $sub['id']]);
-            audit('bl_reset_sub', ['user' => $sub['id']]);
-            return ['username' => $sub['username'], 'password' => $pw];
+            $id = sp_insert('bl_users', ['role' => $r, 'nama' => $nama, 'username' => $uname, 'pass_hash' => password_hash($pw, PASSWORD_DEFAULT), 'must_change' => 1, 'instansi' => str_in($d, 'instansi', 200), 'aktif' => 1, 'created_at' => now_str()]);
+            audit('bl_user_add', ['id' => $id, 'role' => $r]);
+            return ['id' => $id, 'username' => $uname, 'password' => $pw];
+        case 'bl_user_update':
+            need($isA);
+            $t = q1('SELECT * FROM bl_users WHERE id = ?', [int_in($d, 'id')]);
+            need((bool)$t, 'galat.data_tidak_valid', 400);
+            $kk = (string)($d['k'] ?? ''); $v = str_in($d, 'v', 200);
+            if ($kk === 'username') {
+                $v = strtolower($v);
+                need((bool)preg_match('/^[a-z0-9._-]{3,40}$/', $v), 'galat.username_format', 400);
+                need(!qval('SELECT COUNT(*) FROM bl_users WHERE username = ? AND id <> ?', [$v, $t['id']]), 'galat.username_dipakai', 400);
+            } elseif ($kk === 'nama') need($v !== '', 'galat.isi_nama', 400);
+            elseif ($kk === 'email') need($v === '' || bl_valid_email($v), 'bl.galat.email', 400);
+            elseif ($kk === 'hp') need($v === '' || bl_valid_hp($v), 'bl.galat.hp', 400);
+            elseif ($kk !== 'instansi') fail('galat.data_tidak_valid');
+            q("UPDATE bl_users SET $kk = ? WHERE id = ?", [$v, $t['id']]);
+            audit('bl_user_update', ['id' => $t['id'], 'k' => $kk]);
+            return null;
+        case 'bl_user_active':
+        case 'bl_user_reset':
+            need($isA);
+            $t = q1('SELECT * FROM bl_users WHERE id = ?', [int_in($d, 'id')]);
+            need($t && $t['role'] !== 'admin', 'galat.data_tidak_valid', 400);
+            if ($a === 'bl_user_active') {
+                q('UPDATE bl_users SET aktif = ? WHERE id = ?', [!empty($d['v']) ? 1 : 0, $t['id']]);
+                audit('bl_user_active', ['id' => $t['id'], 'v' => !empty($d['v'])]);
+                return null;
+            }
+            $pw = temp_password();
+            q('UPDATE bl_users SET pass_hash = ?, must_change = 1 WHERE id = ?', [password_hash($pw, PASSWORD_DEFAULT), $t['id']]);
+            audit('bl_user_reset', ['id' => $t['id']]);
+            return ['username' => $t['username'], 'password' => $pw];
 
         /* --- Pembina/Fasilitator: soal, materi, aspek, nilai, profil --- */
         case 'bl_soal_save':

@@ -21,12 +21,14 @@ function sp_schema_sql(string $driver): array
     $s[] = "CREATE INDEX idx_pfoto_personel ON personel_foto (personel_id)";
     $s[] = "CREATE TABLE IF NOT EXISTS bhp (id $pk, puskesmas_id INT NOT NULL, jenis VARCHAR(10) NOT NULL, nama VARCHAR(150) NOT NULL, produsen VARCHAR(150) NULL, kategori VARCHAR(20) NOT NULL, level VARCHAR(60) NULL, kemasan VARCHAR(80) NULL, lot VARCHAR(60) NOT NULL, ed VARCHAR(10) NULL, suhu VARCHAR(60) NULL, status VARCHAR(10) NOT NULL DEFAULT 'tersedia', prev_id INT NULL, created_at VARCHAR(19) NULL)$eng";
     $s[] = "CREATE INDEX idx_bhp_pkm ON bhp (puskesmas_id, jenis)";
-    // Peningkatan Kompetensi SDM (pembelajaran)
-    $s[] = "CREATE TABLE IF NOT EXISTS bl_keg (id $pk, judul VARCHAR(200) NOT NULL, penyelenggara VARCHAR(200) NULL, lokasi VARCHAR(200) NULL, tgl_mulai VARCHAR(10) NULL, tgl_selesai VARCHAR(10) NULL, deskripsi $txt NULL, status VARCHAR(10) NOT NULL DEFAULT 'draf', daftar_buka INT NOT NULL DEFAULT 0, pembuka $txt NULL, fasil $txt NULL, created_at VARCHAR(19) NULL, arsip_at VARCHAR(19) NULL)$eng";
+    // Subdomain pembelajaran (Peningkatan Kapasitas Kompetensi SDM): akun, log, dan data terpisah dari Si PANDU
+    $s[] = "CREATE TABLE IF NOT EXISTS bl_users (id $pk, role VARCHAR(10) NOT NULL, nama VARCHAR(150) NOT NULL, username VARCHAR(60) NOT NULL UNIQUE, pass_hash VARCHAR(255) NOT NULL, must_change INT NOT NULL DEFAULT 0, email VARCHAR(150) NULL, hp VARCHAR(30) NULL, instansi VARCHAR(200) NULL, aktif INT NOT NULL DEFAULT 1, created_at VARCHAR(19) NULL, last_login VARCHAR(19) NULL)$eng";
+    $s[] = "CREATE TABLE IF NOT EXISTS bl_audit (id $pk, at VARCHAR(19) NOT NULL, user_id INT NULL, action VARCHAR(60) NOT NULL, detail $txt NULL, ip VARCHAR(45) NULL)$eng";
+    $s[] = "CREATE TABLE IF NOT EXISTS bl_keg (id $pk, judul VARCHAR(200) NOT NULL, penyelenggara VARCHAR(200) NULL, lokasi VARCHAR(200) NULL, tgl_mulai VARCHAR(10) NULL, tgl_selesai VARCHAR(10) NULL, deskripsi $txt NULL, kuota INT NOT NULL DEFAULT 0, status VARCHAR(10) NOT NULL DEFAULT 'draf', daftar_buka INT NOT NULL DEFAULT 0, pembuka $txt NULL, fasil $txt NULL, pengawas $txt NULL, created_at VARCHAR(19) NULL, arsip_at VARCHAR(19) NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS bl_seg (id $pk, keg_id INT NOT NULL, urut INT NOT NULL, jenis VARCHAR(10) NOT NULL, judul VARCHAR(200) NULL, pic_id INT NULL, pic_nama VARCHAR(150) NULL, tanggal VARCHAR(10) NULL, jam_mulai VARCHAR(5) NULL, jam_selesai VARCHAR(5) NULL, sesi $txt NULL, status VARCHAR(10) NOT NULL DEFAULT 'belum', dibuka_at VARCHAR(19) NULL, ditutup_at VARCHAR(19) NULL)$eng";
     $s[] = "CREATE INDEX idx_blseg_keg ON bl_seg (keg_id, urut)";
-    $s[] = "CREATE TABLE IF NOT EXISTS bl_peserta (id $pk, keg_id INT NOT NULL, puskesmas_id INT NOT NULL, personel_id INT NOT NULL, nama VARCHAR(200) NOT NULL, jabatan VARCHAR(150) NULL, nip VARCHAR(60) NULL, surat VARCHAR(100) NULL, status VARCHAR(10) NOT NULL DEFAULT 'menunggu', pesan $txt NULL, user_id INT NULL, kirim_at VARCHAR(19) NULL, verif_at VARCHAR(19) NULL, verif_by VARCHAR(150) NULL, UNIQUE (keg_id, personel_id))$eng";
-    $s[] = "CREATE INDEX idx_blpes_pkm ON bl_peserta (puskesmas_id)";
+    $s[] = "CREATE TABLE IF NOT EXISTS bl_peserta (id $pk, keg_id INT NOT NULL, user_id INT NOT NULL, nama VARCHAR(200) NOT NULL, jabatan VARCHAR(150) NULL, nip VARCHAR(60) NULL, instansi VARCHAR(200) NULL, email VARCHAR(150) NULL, hp VARCHAR(30) NULL, surat VARCHAR(100) NULL, status VARCHAR(10) NOT NULL DEFAULT 'menunggu', pesan $txt NULL, kirim_at VARCHAR(19) NULL, verif_at VARCHAR(19) NULL, verif_by VARCHAR(150) NULL, UNIQUE (keg_id, user_id))$eng";
+    $s[] = "CREATE INDEX idx_blpes_user ON bl_peserta (user_id)";
     $s[] = "CREATE TABLE IF NOT EXISTS bl_soal (id $pk, keg_id INT NOT NULL, urut INT NOT NULL, teks $txt NOT NULL, a $txt NOT NULL, b $txt NOT NULL, c $txt NOT NULL, d $txt NOT NULL, kunci VARCHAR(1) NOT NULL)$eng";
     $s[] = "CREATE INDEX idx_blsoal_keg ON bl_soal (keg_id, urut)";
     $s[] = "CREATE TABLE IF NOT EXISTS bl_jawab (id $pk, peserta_id INT NOT NULL, seg_id INT NOT NULL, soal_id INT NOT NULL, pilih VARCHAR(1) NOT NULL, at VARCHAR(19) NOT NULL, UNIQUE (peserta_id, seg_id, soal_id))$eng";
@@ -67,7 +69,7 @@ function sp_create_schema(PDO $pdo, string $driver): void
 }
 
 /** Versi skema saat ini; dinaikkan setiap ada kolom/tabel baru */
-const SP_SCHEMA_VERSION = 4;
+const SP_SCHEMA_VERSION = 5;
 
 /** Kolom yang ditambahkan setelah versi 1 (untuk basis data yang sudah terpasang) */
 function sp_added_columns(string $driver): array
@@ -100,13 +102,21 @@ function sp_migrate(PDO $pdo, string $driver): void
 /** Tabel yang wajib ada (dipakai uji mandiri) */
 function sp_required_tables(): array
 {
-    return ['settings', 'puskesmas', 'users', 'params', 'alat', 'sheets', 'runs', 'comments', 'cases', 'notifs', 'notif_reads', 'risks', 'kops', 'audit_log', 'login_attempts', 'personel', 'personel_foto', 'bhp', 'bl_keg', 'bl_seg', 'bl_peserta', 'bl_soal', 'bl_jawab', 'bl_selesai', 'bl_aspek', 'bl_nilai', 'bl_materi', 'bl_eval', 'bl_profil'];
+    return ['settings', 'puskesmas', 'users', 'params', 'alat', 'sheets', 'runs', 'comments', 'cases', 'notifs', 'notif_reads', 'risks', 'kops', 'audit_log', 'login_attempts', 'personel', 'personel_foto', 'bhp', 'bl_users', 'bl_audit', 'bl_keg', 'bl_seg', 'bl_peserta', 'bl_soal', 'bl_jawab', 'bl_selesai', 'bl_aspek', 'bl_nilai', 'bl_materi', 'bl_eval', 'bl_profil'];
 }
 
 /** Nama resmi 27 Puskesmas (urut abjad = kode P01–P27) */
 const SP_PKM_NAMA = ['Baru Ilir', 'Baru Tengah', 'Baru Ulu', 'Batu Ampar', 'Damai', 'Graha Indah', 'Gunung Bahagia', 'Gunung Samarinda', 'Gunung Sari Ilir',
     'Gunung Sari Ulu', 'Karang Jati', 'Karang Joang', 'Karang Rejo', 'Kariangau', 'Klandasan Ilir', 'Lamaru', 'Manggar', 'Manggar Baru', 'Marga Sari',
     'Margo Mulyo', 'Mekar Sari', 'Muara Rapak', 'Prapatan', 'Sepinggan Baru', 'Sumber Rejo', 'Telaga Sari', 'Teritip'];
+
+/** Langkah sebelum tabel dibuat: tabel pembelajaran versi 4 (terikat akun Si PANDU) dibuang agar dibuat ulang dengan struktur subdomain */
+function sp_migrate_pre(int $from): void
+{
+    if ($from >= 4 && $from < 5) {
+        foreach (['bl_keg', 'bl_seg', 'bl_peserta', 'bl_soal', 'bl_jawab', 'bl_selesai', 'bl_aspek', 'bl_nilai', 'bl_materi', 'bl_eval', 'bl_profil'] as $tb) sp_db()->exec("DROP TABLE IF EXISTS $tb");
+    }
+}
 
 /** Perubahan data sekali jalan saat naik versi skema (aman diulang) */
 function sp_migrate_data(int $from): void
@@ -123,9 +133,11 @@ function sp_migrate_data(int $from): void
             q('UPDATE users SET nama = ? WHERE puskesmas_id = ? AND role = ? AND nama = ?', [t('seed.nama_lab', ['pkm' => $baru]), $p['id'], 'binaan', t('seed.nama_lab', ['pkm' => $tmp])]);
         }
     }
-    if ($from < 4) {
-        // personel Puskesmas binaan yang sudah ada mendapat sub-akun; sandi diberikan lewat "Reset sandi sub-akun"
-        require_once __DIR__ . '/belajar.php';
-        foreach (qall('SELECT * FROM personel WHERE puskesmas_id > 0 ORDER BY id') as $per) bl_sub_for_personel($per);
+    if ($from >= 4 && $from < 5) {
+        // pembelajaran pindah ke subdomain dengan akun tersendiri: Fasilitator & sub-akun personel di Si PANDU dinonaktifkan,
+        // berkas pembelajaran lama dihapus (tabelnya sudah dibuat ulang kosong oleh sp_migrate_pre)
+        q("UPDATE users SET aktif = 0 WHERE role IN ('fasil', 'peserta')");
+        $dd = rtrim(sp_config()['data_dir'], '/');
+        foreach (['surat', 'materi', 'profil'] as $sub) foreach (glob($dd . '/' . $sub . '/*') ?: [] as $f) if (is_file($f)) @unlink($f);
     }
 }

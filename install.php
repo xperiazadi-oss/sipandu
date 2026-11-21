@@ -3,6 +3,7 @@
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/app/schema.php';
+if (sp_app() === 'bl') { require __DIR__ . '/app/bl_web.php'; bl_page_install(); exit; }   // subdomain pembelajaran: akun Admin tersendiri
 
 sp_send_security_headers();
 header('Cache-Control: no-store');

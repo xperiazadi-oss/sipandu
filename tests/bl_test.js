@@ -1,7 +1,10 @@
-// Uji integrasi modul Peningkatan Kompetensi SDM. Dijalankan SETELAH tests/e2e_server.js pada basis data yang sama.
+// Uji integrasi subdomain pembelajaran (Si PANDU – Peningkatan Kapasitas Kompetensi SDM).
+// Dijalankan SETELAH tests/e2e_server.js. Si PANDU di BASE (8099), subdomain di BL (8098, SIPANDU_APP=bl), basis data sama.
 const { chromium } = require('/opt/npm-tools/node_modules/playwright');
 const fs = require('fs'), os = require('os'), path = require('path');
 const BASE = process.env.BASE || 'http://127.0.0.1:8099';
+const BL = process.env.BL || 'http://127.0.0.1:8098';
+const TOKEN = process.env.TOKEN || 'TOKEN-UJI-123';
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'blt-'));
 function pdf(text, pad) {
   const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>'];
@@ -19,303 +22,279 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
   let fail = 0, n = 0; const ok = (c, m) => { n++; if (!c) { fail++; console.log('GAGAL', m); } else console.log('ok  ', m); };
   const errors = [];
-  const newPage = async () => { const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, acceptDownloads: true }); const p = await ctx.newPage(); p.on('pageerror', e => errors.push(e.message)); return p; };
+  const newPage = async () => { const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, acceptDownloads: true }); const p = await ctx.newPage(); p.on('pageerror', e => errors.push(e.message)); p.on('console', m => { if (m.type() === 'error' && !/fonts\.g|ERR_|Failed to load resource/.test(m.text())) errors.push(m.text()); }); return p; };
   const txt = p => p.evaluate(() => document.body.innerText);
   const go = async (p, h) => { await p.evaluate(h => location.hash = h, h); await p.waitForTimeout(350); };
   const api = (p, a, d) => p.evaluate(([a, d]) => Core.api(a, d).then(r => ({ ok: true, r }), e => ({ ok: false, e: e.message })), [a, d]);
-  const login = async (p, u, pw) => { await p.goto(BASE + '/'); await p.fill('[name=username]', u); await p.fill('[name=password]', pw); await p.click('button[type=submit]'); await p.waitForLoadState(); await p.waitForTimeout(300); };
+  const login = async (p, u, pw, base) => { await p.goto((base || BL) + '/'); await p.fill('[name=username]', u); await p.fill('[name=password]', pw); await p.click('button[type=submit]'); await p.waitForLoadState(); await p.waitForTimeout(300); };
   const firstLogin = async (p, u, pw, npw) => { await login(p, u, pw); ok(/ganti kata sandi sementara/.test(await txt(p)), u + ': wajib ganti sandi saat masuk pertama'); await p.fill('[name=old]', pw); await p.fill('[name=new]', npw); await p.fill('[name=new2]', npw); await p.click('button[type=submit]'); await p.waitForLoadState(); await p.waitForTimeout(400); };
   const status = (p, url) => p.evaluate(u => fetch(u).then(r => r.status), url);
   const click = async (p, sel) => { await p.click(sel); await p.waitForTimeout(450); };
+  const toasts = p => p.evaluate(() => [...document.querySelectorAll('.toast.bad')].map(x => x.textContent).join(' '));
+  const signup = async (p, f) => {
+    await p.goto(BL + '/?daftar=1');
+    for (const k of ['nama', 'email', 'hp', 'instansi', 'username']) if (f[k] != null) await p.fill(`[name=${k}]`, f[k]);
+    await p.fill('[name=p1]', f.pw); await p.fill('[name=p2]', f.pw2 || f.pw);
+    if (f.bot) await p.evaluate(() => { document.querySelector('[name=website]').value = 'http://spam'; });
+    await p.click('button[type=submit]'); await p.waitForLoadState(); await p.waitForTimeout(400);
+  };
 
-  // ---- Admin: nama Puskesmas, menu "Masih dikembangkan", akun Fasilitator
-  const A = await newPage(); await login(A, 'admin', 'AdminKuat2026');
-  const pk = await A.evaluate(() => Core.S.pkms.slice(0, 3).map(p => p.name));
-  ok(pk[0] === 'Puskesmas Baru Ilir' && pk[1] === 'Puskesmas Baru Tengah' && pk[2] === 'Puskesmas Baru Ulu', 'Nama Puskesmas resmi (urut abjad): ' + pk.join(', '));
-  ok((await A.evaluate(() => Core.S.pkms.length)) >= 27 && (await A.evaluate(() => Core.S.pkms.find(p => p.kode === 'P27').name)) === 'Puskesmas Teritip', 'P27 = Puskesmas Teritip');
-  ok(!/Tahap 2|Tahap 3/.test(await A.evaluate(() => document.querySelector('.nav').innerText)), 'Label "Tahap 2/3" tidak tampil di menu');
-  const dev = A.locator('.nav a.dev').first();
-  ok((await dev.getAttribute('data-tip')) === 'Masih dikembangkan', 'Menu belum jadi: keterangan "Masih dikembangkan"');
-  await dev.hover(); const tip = await A.evaluate(() => { const a = document.querySelector('.nav a.dev:hover'); return a ? getComputedStyle(a, '::after').content : ''; });
-  ok(/Masih dikembangkan/.test(tip), 'Kursor diarahkan → pesan "Masih dikembangkan" muncul');
-  const h0 = await A.evaluate(() => location.hash); await dev.click(); await A.waitForTimeout(250);
-  ok((await A.evaluate(() => location.hash)) === h0 && /Masih dikembangkan/.test(await A.evaluate(() => (document.querySelector('.toast.bad') || {}).textContent || '')), 'Diklik/disentuh → tidak pindah halaman, pesan muncul');
-  await go(A, 'pengguna'); ok(await A.locator('#nuRole option[value=fasil]').count() === 1, 'Admin dapat memilih peran Fasilitator');
-  const fa = await api(A, 'user_add', { role: 'fasil', name: 'Dr. Rina Fasilitator', username: 'fasil1' });
-  const fb = await api(A, 'user_add', { role: 'fasil', name: 'Fasilitator Lain', username: 'fasil2' });
-  ok(fa.ok && fb.ok, 'Akun Fasilitator dibuat');
+  // ---- Si PANDU: menu pembelajaran dipindah ke subdomain
+  const SA = await newPage(); await login(SA, 'admin', 'AdminKuat2026', BASE);
+  ok(!(await SA.locator('.nav a[href="#bl"]').count()) && !/Peningkatan Kompetensi SDM/.test(await txt(SA)), 'Si PANDU: menu Peningkatan Kompetensi SDM dihapus (Admin)');
+  await go(SA, 'pengguna'); ok(!(await SA.locator('#nuRole option[value=fasil]').count()) && (await SA.locator('#nuRole option').count()) === 2, 'Si PANDU: peran Fasilitator tidak ada lagi di Pengguna');
+  ok(!(await api(SA, 'bl_get', { id: 1 })).ok && !(await api(SA, 'user_add', { role: 'fasil', name: 'x', username: 'fasilx' })).ok, 'Si PANDU: aksi pembelajaran & pembuatan Fasilitator ditolak server');
+  const SB = await newPage(); await login(SB, 'pkm01', 'Puskesmas01Baru', BASE);
+  const link = SB.locator('.nav a', { hasText: 'Pembelajaran' });
+  ok((await link.count()) === 1 && (await link.getAttribute('href')) === BL + '/' && !(await link.getAttribute('target')), 'Si PANDU Binaan: menu "Pembelajaran" langsung ke subdomain (tab yang sama)');
+  ok((await SB.evaluate(() => Core.S.personel.every(p => !('subUser' in p)))) && !(await api(SB, 'bl_reset_sub', { personelId: 1 })).ok, 'Si PANDU: sub-akun personel dihapus');
+  const SP = await newPage(); await login(SP, 'pembina1', 'Pembina1Baru', BASE);
+  ok(!(await SP.locator('.nav a', { hasText: /Pembelajaran|Kompetensi/ }).count()), 'Si PANDU Pembina: tanpa menu pembelajaran');
+  ok((await status(SB, BASE + '/berkas.php?j=surat&id=1')) === 404, 'Si PANDU: berkas pembelajaran tidak tersedia di domain utama');
 
-  // ---- Admin: kegiatan & segmen
+  // ---- Pemasangan Admin subdomain
+  const P0 = await newPage(); await P0.goto(BL + '/');
+  ok(/belum dipasang/.test(await txt(P0)), 'Subdomain sebelum dipasang: pesan belum dipasang');
+  await P0.goto(BL + '/install.php?token=salah'); ok(/tidak valid/.test(await txt(P0)), 'Pemasangan subdomain tanpa token benar ditolak');
+  await P0.goto(BL + '/install.php?token=' + TOKEN); await P0.fill('[name=p1]', 'BelajarAdmin2026'); await P0.fill('[name=p2]', 'BelajarAdmin2026'); await click(P0, 'button[type=submit]');
+  ok(/PEMASANGAN SELESAI/.test(await txt(P0)), 'Akun Admin subdomain dibuat saat pemasangan');
+  await P0.goto(BL + '/install.php?token=' + TOKEN); ok(/sudah terpasang/.test(await txt(P0)), 'Pemasangan subdomain terkunci setelah selesai');
+
+  // ---- Akun terpisah
+  const X = await newPage(); await login(X, 'admin', 'AdminKuat2026'); ok(/salah/.test(await txt(X)), 'Akun Si PANDU tidak berlaku di subdomain');
+  await login(X, 'pkm01', 'Puskesmas01Baru'); ok(/salah/.test(await txt(X)), 'Akun Binaan Si PANDU tidak berlaku di subdomain');
+  const A = await newPage(); await login(A, 'admin', 'BelajarAdmin2026');
+  ok(/Si PANDU – Peningkatan Kapasitas Kompetensi SDM/.test(await txt(A)), 'Judul situs: "Si PANDU – Peningkatan Kapasitas Kompetensi SDM"');
+  ok((await A.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-pengguna', 'Menu Admin subdomain: Kegiatan, Pengguna');
+  ok((await status(A, BL + '/kop.php?k=pembina')) === 404 && (await status(A, BL + '/foto.php?f=1')) === 404, 'Admin subdomain tidak dapat membuka berkas Si PANDU');
+  const mainSess = await SA.evaluate(() => Core.api('state').then(() => Core.me().username)); ok(mainSess === 'admin', 'Sesi Si PANDU tidak terganggu sesi subdomain');
+
+  // ---- Admin: akun Pembina, Fasilitator, Pengawas
+  await go(A, 'bl-pengguna');
+  await A.selectOption('#buR', 'fasil'); await A.fill('#buN', 'Dr. Rina Fasilitator'); await A.fill('#buU', 'fasil1'); await A.fill('#buI', 'Labkesda Balikpapan'); await click(A, '[data-act=blUserAdd]');
+  const pwF1 = await A.evaluate(() => document.querySelectorAll('.modal code')[1].textContent); await A.click('.modal [data-close]');
+  ok(pwF1.length === 10 && (await A.evaluate(() => Core.S.users.some(u => u.name === 'Dr. Rina Fasilitator' && u.role === 'fasil' && u.mustChange))), 'Admin membuat akun Fasilitator; sandi sementara tampil sekali');
+  const mk = async (role, name, un) => (await api(A, 'bl_user_add', { role, name, username: un })).r;
+  const uF2 = await mk('fasil', 'Fasilitator Lain', 'fasil2'), uP = await mk('pembina', 'Pembina Labkesda', 'pembina1'), uW = await mk('pengawas', 'Pengawas Dinkes', 'pengawas1'), uW2 = await mk('pengawas', 'Pengawas Lain', 'pengawas2');
+  ok(uF2 && uP && uW && uW2 && !(await api(A, 'bl_user_add', { role: 'peserta', name: 'x', username: 'px' })).ok && !(await api(A, 'bl_user_add', { role: 'pembina', name: 'x', username: 'pembina1' })).ok, 'Akun Pembina & Pengawas dibuat; peran Peserta dan nama pengguna ganda ditolak');
+  const fid = (await A.evaluate(() => Core.S.users.find(u => u.username === 'fasil1').id));
+
+  // ---- Peserta membuat akun sendiri
+  const S1 = await newPage();
+  await S1.goto(BL + '/'); ok(await S1.locator('a[href="./?daftar=1"]').count() === 1, 'Halaman masuk: tautan Buat akun');
+  await signup(S1, { nama: 'Ani Lestari, A.Md.AK', email: 'ani@contoh', hp: '081234567890', instansi: 'Puskesmas Baru Ilir', username: 'ani', pw: 'PesertaAni123' });
+  ok(/Format email tidak valid/.test(await txt(S1)) && (await S1.inputValue('[name=nama]')) === 'Ani Lestari, A.Md.AK', 'Email salah ditolak; isian tetap ada');
+  await signup(S1, { nama: 'Ani Lestari, A.Md.AK', email: 'ani@contoh.id', hp: '081234567890', instansi: 'Puskesmas Baru Ilir', username: 'ani', pw: 'PesertaAni123', bot: true });
+  ok(/tidak dapat diproses/.test(await txt(S1)), 'Kolom jebakan bot terisi → ditolak');
+  await signup(S1, { nama: 'Ani Lestari, A.Md.AK', email: 'ani@contoh.id', hp: '081234567890', instansi: 'Puskesmas Baru Ilir', username: 'ani', pw: 'PesertaAni123', pw2: 'Lain12345' });
+  ok(/tidak sama/.test(await txt(S1)), 'Sandi ulang berbeda ditolak');
+  await signup(S1, { nama: 'Ani Lestari, A.Md.AK', email: 'ani@contoh.id', hp: '081234567890', instansi: 'Puskesmas Baru Ilir', username: 'ani', pw: 'PesertaAni123' });
+  ok((await S1.evaluate(() => Core.me().role)) === 'peserta' && (await S1.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-riwayat', 'Akun peserta langsung aktif & masuk; menu Kegiatan, Riwayat saya');
+  const S2 = await newPage(); await signup(S2, { nama: 'Cici Rahma, S.Tr.Kes', email: 'cici@contoh.id', hp: '+62 812-0000-1111', instansi: 'RSUD Kanujoso', username: 'cici', pw: 'PesertaCici123' });
+  const SBu = await newPage(); await signup(SBu, { nama: 'Budi Santoso', email: 'budi@contoh.id', hp: '081300000000', instansi: 'Klinik Sehat', username: 'budi', pw: 'PesertaBudi123' });
+  const SD = await newPage(); await signup(SD, { nama: 'Dedi', email: 'dedi@contoh.id', hp: '081300000001', instansi: 'Puskesmas Damai', username: 'dedi', pw: 'PesertaDedi123' });
+  const SE = await newPage(); await signup(SE, { nama: 'Eka', email: 'eka@contoh.id', hp: '081300000002', instansi: 'Puskesmas Damai', username: 'ani', pw: 'PesertaEka123' });
+  ok(/sudah dipakai/.test(await txt(SE)), 'Nama pengguna yang sudah dipakai ditolak');
+  await signup(SE, { nama: 'Eka', email: 'eka@contoh.id', hp: '081300000002', instansi: 'Puskesmas Damai', username: 'eka', pw: 'PesertaEka123' });
+  ok((await S2.evaluate(() => Core.me().username)) === 'cici' && (await SE.evaluate(() => Core.me().username)) === 'eka', 'Beberapa peserta membuat akun');
+  const SF = await newPage(); await signup(SF, { nama: 'Fajar', email: 'fajar@contoh.id', hp: '081300000003', instansi: 'X', username: 'fajar', pw: 'PesertaFajar123' });
+  ok(/Terlalu banyak akun/.test(await txt(SF)), 'Batas 5 akun per jam per jaringan (perlindungan bot)');
+  await login(X, 'ani', 'PesertaAni123', BASE); ok(/salah/.test(await txt(X)), 'Akun peserta subdomain tidak berlaku di Si PANDU');
+
+  // ---- Admin: kegiatan, kuota, segmen
   await go(A, 'bl'); await A.fill('#bkT', 'Pelatihan QC Westgard 2026'); await A.fill('#bkO', 'Labkesda Balikpapan'); await click(A, '[data-act=blKegAdd]');
+  ok(/Kuota harus/.test(await toasts(A)), 'Kegiatan tanpa kuota ditolak (kuota wajib)');
+  await A.fill('#bkT', 'Pelatihan QC Westgard 2026'); await A.fill('#bkO', 'Labkesda Balikpapan'); await A.fill('#bkK', '2'); await click(A, '[data-act=blKegAdd]');
   const kid = await A.evaluate(() => location.hash.split('-')[1]);
-  ok(/Pelatihan QC Westgard 2026/.test(await txt(A)) && kid, 'Kegiatan dibuat (draf) dengan segmen wajib');
   let d = (await api(A, 'bl_get', { id: +kid })).r;
-  ok(d.segs.map(s => s.jenis).join() === 'pretest,materi,posttest,penutup', 'Segmen awal: Pretest, Materi 1, Post test, Penutup');
+  ok(kid && d.keg.kuota === 2 && d.segs.map(s => s.jenis).join() === 'pretest,materi,posttest,penutup', 'Kegiatan dibuat dengan kuota 2 dan segmen wajib');
   await click(A, '[data-act=blSegAdd][data-v=praktik]'); await click(A, '[data-act=blSegAdd][data-v=materi]');
   d = (await api(A, 'bl_get', { id: +kid })).r;
-  ok(d.segs.map(s => s.jenis).join() === 'pretest,materi,praktik,materi,posttest,penutup', 'Segmen ditambahkan sebelum Post test');
   const prak = d.segs.find(s => s.jenis === 'praktik'), m1 = d.segs[1], m2 = d.segs[3];
-  await click(A, `[data-act=blSegMove][data-id="${prak.id}"][data-v="1"]`);
-  d = (await api(A, 'bl_get', { id: +kid })).r; ok(d.segs.map(s => s.jenis).join() === 'pretest,materi,materi,praktik,posttest,penutup', 'Praktik dapat dipindah ke setelah materi terakhir');
-  const bad = await api(A, 'bl_seg_move', { id: m1.id, dir: -1 }); ok(!bad.ok && /Urutan/.test(bad.e), 'Urutan yang melanggar (Materi sebelum Pretest) ditolak');
-  const bad2 = await api(A, 'bl_seg_move', { id: prak.id, dir: -1 }); await api(A, 'bl_seg_move', { id: prak.id, dir: -1 });
-  d = (await api(A, 'bl_get', { id: +kid })).r; const bad3 = await api(A, 'bl_seg_move', { id: prak.id, dir: -1 });
-  ok(bad2.ok && d.segs[2].jenis === 'praktik' && !bad3.ok, 'Praktik boleh setelah materi mana pun, tidak boleh sebelum materi pertama');
-  await api(A, 'bl_seg_move', { id: prak.id, dir: 1 }); await api(A, 'bl_seg_move', { id: prak.id, dir: 1 });
-  const fid = fa.r.id, fid2 = fb.r.id, pemb1 = await A.evaluate(() => Core.S.users.find(u => u.username === 'pembina1').id);
+  await api(A, 'bl_seg_move', { id: prak.id, dir: 1 });
+  ok(!(await api(A, 'bl_seg_move', { id: m1.id, dir: -1 })).ok, 'Urutan segmen yang melanggar ditolak');
+  const pemb = (await A.evaluate(() => Core.S.users.find(u => u.username === 'pembina1').id)), pw1 = (await A.evaluate(() => Core.S.users.find(u => u.username === 'pengawas1').id));
   await A.reload(); await A.waitForTimeout(400);
   await A.check(`[data-blpeople=fasil][value="${fid}"]`); await A.waitForTimeout(450);
-  await A.check(`[data-blpeople=pembuka][value="${pemb1}"]`); await A.waitForTimeout(450);
+  await A.check(`[data-blpeople=pembuka][value="${pemb}"]`); await A.waitForTimeout(450);
+  await A.check(`[data-blpeople=pengawas][value="${pw1}"]`); await A.waitForTimeout(450);
+  ok(!(await A.locator(`[data-blseg="${m1.id}"][data-k=picId] option[value="${pw1}"]`).count()), 'Pengawas tidak muncul sebagai pilihan narasumber/PIC');
   await A.selectOption(`[data-blseg="${m1.id}"][data-k=picId]`, String(fid)); await A.waitForTimeout(450);
   await A.fill(`[data-blseg="${m1.id}"][data-k=date]`, '2026-12-01'); await A.press(`[data-blseg="${m1.id}"][data-k=date]`, 'Tab'); await A.waitForTimeout(400);
-  await A.fill(`[data-blseg="${m2.id}"][data-k=title]`, 'Materi 2: Manajemen Risiko'); await A.press(`[data-blseg="${m2.id}"][data-k=title]`, 'Tab'); await A.waitForTimeout(400);
-  await api(A, 'bl_seg_sesi', { id: m1.id, sesi: [{ title: 'Aturan Westgard', date: '2026-12-01', from: '08:00', to: '10:00', pic: 'Dr. Rina' }, { title: 'Grafik Levey-Jennings', date: '2026-12-01', from: '10:15', to: '12:00' }, { title: '' }] });
+  await api(A, 'bl_seg_sesi', { id: m1.id, sesi: [{ title: 'Aturan Westgard', date: '2026-12-01', from: '08:00', to: '10:00', pic: 'Dr. Rina' }, { title: 'Grafik Levey-Jennings', date: '2026-12-01', from: '10:15', to: '12:00' }] });
   d = (await api(A, 'bl_get', { id: +kid })).r;
-  ok(d.keg.fasil.includes(fid) && d.keg.pembuka.includes(pemb1) && d.segs[1].picId === fid && d.segs[1].date === '2026-12-01' && d.segs[2].title === 'Materi 2: Manajemen Risiko' && d.segs[1].sesi.length === 2, 'Fasilitator, pembuka segmen, PIC, jadwal, judul, dan sesi tersimpan');
-  ok(!(await api(A, 'bl_seg_update', { id: m1.id, k: 'from', v: '25:00' })).ok, 'Format jam salah ditolak');
-  const early = await api(A, 'bl_seg_state', { id: d.segs[0].id, v: 'buka' }); ok(!early.ok, 'Segmen tidak dapat dibuka sebelum kegiatan terbit');
+  ok(d.keg.fasil.includes(fid) && d.keg.pembuka.includes(pemb) && d.keg.pengawas.includes(pw1) && d.segs[1].picId === fid && d.segs[1].sesi.length === 2, 'Fasilitator, pembuka segmen, Pengawas, PIC, jadwal, sesi tersimpan');
+  await A.fill('[data-blk=kuota]', '0'); await A.press('[data-blk=kuota]', 'Tab'); await A.waitForTimeout(400); ok(/Kuota harus/.test(await toasts(A)), 'Kuota 0 ditolak');
 
-  // ---- Sub-akun & draf
-  const B = await newPage(); await login(B, 'pkm01', 'Puskesmas01Baru');
-  const ani = await B.evaluate(() => Core.S.personel.find(x => x.name === 'Ani ATLM').id);
-  ok((await B.evaluate(id => Core.byId(Core.S.personel, id).subUser, ani)) === 'pkm01.ani', 'Personel yang sudah disimpan memiliki sub-akun pkm01.ani');
-  const rsA = await api(B, 'bl_reset_sub', { personelId: ani });
-  const S1 = await newPage(); await firstLogin(S1, 'pkm01.ani', rsA.r.password, 'PesertaAni123');
-  ok((await S1.evaluate(() => Core.S.bl.length)) === 0 && !(await api(S1, 'bl_get', { id: +kid })).ok && (await B.evaluate(() => Core.S.bl.length)) === 0, 'Kegiatan draf tidak terlihat oleh sub-akun maupun akun Puskesmas');
-  const P = await newPage(); await login(P, 'pembina1', 'Pembina1Baru');
-  ok((await P.evaluate(() => Core.S.personel.filter(x => x.pkmId === 0).every(x => !x.subUser))), 'Personel Labkesmas (akun Pembina) tidak mendapat sub-akun');
+  // ---- draf tidak terlihat
+  await S1.reload(); await S1.waitForTimeout(300);
+  const W = await newPage(); await firstLogin(W, 'pengawas1', uW.password, 'Pengawas1Baru');
+  ok((await S1.evaluate(() => Core.S.bl.length)) === 0 && !(await api(S1, 'bl_get', { id: +kid })).ok && (await W.evaluate(() => Core.S.bl.length)) === 0, 'Kegiatan draf tidak terlihat oleh peserta maupun Pengawas');
+  ok((await W.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl', 'Menu Pengawas: Kegiatan');
 
-  // ---- Fasilitator
-  const FA = await newPage(); await firstLogin(FA, 'fasil1', fa.r.password, 'Fasilitator1Baru');
-  const nav = await FA.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')));
-  ok(nav.join() === '#bl,#bl-profil', 'Fasilitator hanya melihat menu Pembelajaran & profil');
-  ok(!(await api(FA, 'sheet_get', { id: 1 })).ok && !(await api(FA, 'sdm_add', { name: 'x' })).ok && (await FA.evaluate(() => Core.S.sheets.length + Core.S.personel.length + Core.S.alats.length)) === 0, 'Fasilitator tidak dapat mengakses data QC/Sumber Daya');
-  const FB = await newPage(); await firstLogin(FB, 'fasil2', fb.r.password, 'Fasilitator2Baru');
+  // ---- Fasilitator & Pembina menyusun isi
+  const FA = await newPage(); await firstLogin(FA, 'fasil1', pwF1, 'Fasilitator1Baru');
+  ok((await FA.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-profil', 'Menu Fasilitator: Kegiatan, Profil narasumber');
+  const FB = await newPage(); await firstLogin(FB, 'fasil2', uF2.password, 'Fasilitator2Baru');
   ok((await FB.evaluate(() => Core.S.bl.length)) === 0 && !(await api(FB, 'bl_get', { id: +kid })).ok, 'Fasilitator yang tidak ditugaskan tidak melihat kegiatan');
-  await go(FA, 'bl-profil'); await FA.waitForTimeout(400); await FA.fill('#bpJ', 'Ahli Teknologi Laboratorium Medik'); await FA.fill('#bpI', 'Labkesda Balikpapan'); await FA.fill('#bpR', 'Pengalaman 10 tahun di bidang mutu.'); await click(FA, '[data-act=blProfilSave]');
+  await go(FA, 'bl-profil'); await FA.waitForTimeout(400); await FA.fill('#bpJ', 'Ahli Teknologi Laboratorium Medik'); await FA.fill('#bpI', 'Labkesda Balikpapan'); await click(FA, '[data-act=blProfilSave]');
   await FA.setInputFiles('#blFoto', F.foto); await FA.waitForTimeout(800);
-  const prof = (await api(FA, 'bl_get_profil', {})).r; ok(prof.jabatan === 'Ahli Teknologi Laboratorium Medik' && prof.foto, 'Profil & foto narasumber tersimpan');
-  await go(FA, 'bl-' + kid); await FA.waitForTimeout(500);
-  ok(/Pelatihan QC Westgard 2026/.test(await txt(FA)) && await FA.locator('[data-act=blTab][data-v=soal]').count() === 1, 'Fasilitator membuka kegiatan yang ditugaskan');
-  await click(FA, '[data-act=blTab][data-v=soal]');
+  ok((await api(FA, 'bl_get_profil', {})).r.foto, 'Profil & foto narasumber tersimpan');
+  await go(FA, 'bl-' + kid); await FA.waitForTimeout(400); await click(FA, '[data-act=blTab][data-v=soal]');
   await FA.fill('#sqT', 'Aturan 1-3s berarti?'); for (const x of ['a', 'b', 'c', 'd']) await FA.fill('#sq' + x, 'Pilihan ' + x.toUpperCase()); await FA.selectOption('#sqK', 'c'); await click(FA, '[data-act=blSoalSave]');
   ok(/1 dari 25/.test(await txt(FA)), 'Soal ditambahkan lewat formulir');
   const keys = 'abcdabcdabcdabcdabcdabcd'.split('');
-  for (let i = 0; i < 24; i++) await api(FA, 'bl_soal_save', { kegId: +kid, text: 'Soal ' + (i + 2), oa: 'A' + (i + 2), ob: 'B' + (i + 2), oc: 'C' + (i + 2), od: 'D' + (i + 2), key: keys[i] });
-  ok(!(await api(FA, 'bl_soal_save', { kegId: +kid, text: 'x', oa: 'a', ob: 'b', oc: 'c', od: 'd', key: 'a' })).ok, 'Soal dibatasi 25');
-  ok(!(await api(FA, 'bl_soal_save', { kegId: +kid, text: 'x', oa: 'a', ob: '', oc: 'c', od: 'd', key: 'a' })).ok, 'Soal tanpa pilihan lengkap ditolak');
+  for (let i = 0; i < 24; i++) await api(FA, 'bl_soal_save', { kegId: +kid, text: 'Soal ' + (i + 2), oa: 'A', ob: 'B', oc: 'C', od: 'D', key: keys[i] });
   await click(FA, '[data-act=blTab][data-v=materi]');
   await FA.fill('#bmT', 'Modul Westgard'); await FA.selectOption('#bmS', String(m1.id)); await FA.setInputFiles('#bmF', F.materi); await click(FA, '[data-act=blMateriUp]'); await FA.waitForTimeout(400);
   ok(/Modul Westgard/.test(await txt(FA)), 'Materi PDF diunggah');
-  const up2 = await FA.evaluate(async (f) => { const fd = new FormData(); fd.append('kegId', f.k); fd.append('title', 'x'); fd.append('file', new Blob(['bukan pdf'], { type: 'application/pdf' }), 'x.pdf'); return Core.api('bl_materi_upload', null, { form: fd }).then(() => 'ok', e => e.message); }, { k: kid });
-  ok(/PDF/.test(up2), 'Berkas bukan PDF ditolak');
-  await click(FA, '[data-act=blTab][data-v=nilai]');
-  await FA.fill('#ba-sikap-0', 'Kedisiplinan'); await FA.fill('#bd-sikap-0', '80'); await click(FA, '[data-act=blAspAdd][data-j=sikap]');
+  await api(FA, 'bl_aspek_add', { kegId: +kid, jenis: 'sikap', name: 'Kedisiplinan', def: 80 });
   await api(FA, 'bl_aspek_add', { kegId: +kid, jenis: 'sikap', name: 'Kerja sama', def: 70 });
   await api(FA, 'bl_aspek_add', { kegId: +kid, jenis: 'praktik', segId: prak.id, name: 'Ketepatan pipetasi', def: 60 });
-  d = (await api(FA, 'bl_get', { id: +kid })).r; ok(d.aspek.length === 3 && d.aspek[0].name === 'Kedisiplinan' && d.aspek[0].def === 80, 'Aspek sikap & praktik dengan nilai bawaan diatur Fasilitator');
-  ok(!('eval' in d), 'Fasilitator tidak melihat rekap penilaian terhadap narasumber');
-  ok(!(await api(FA, 'bl_keg_update', { id: +kid, k: 'title', v: 'x' })).ok && !(await api(FA, 'bl_verif', { id: 1, v: 'diterima' })).ok, 'Fasilitator tidak dapat mengubah pengaturan/verifikasi');
-  ok(!(await api(FA, 'bl_seg_state', { id: d.segs[0].id, v: 'buka' })).ok, 'Fasilitator yang tidak dicentang sebagai pembuka tidak dapat membuka segmen');
+  d = (await api(FA, 'bl_get', { id: +kid })).r; ok(d.soal.length === 25 && d.aspek.length === 3 && !('eval' in d), '25 soal & 3 aspek; Fasilitator tidak melihat penilaian narasumber');
 
-  // ---- Admin: terbitkan & buka pendaftaran
+  // ---- terbit & pendaftaran dengan kuota
   await go(A, 'bl-' + kid); await A.reload(); await A.waitForTimeout(400);
-  await click(A, '[data-act=blKegStatus][data-v=terbit]'); await click(A, '#cbOK'); await A.waitForTimeout(300);
+  await click(A, '[data-act=blKegStatus][data-v=terbit]'); await click(A, '#cbOK');
   await A.check('[data-act=blDaftar]'); await A.waitForTimeout(500);
-  d = (await api(A, 'bl_get', { id: +kid })).r; ok(d.keg.status === 'terbit' && d.keg.open, 'Kegiatan diterbitkan & pendaftaran dibuka');
-
-  // ---- Sub-akun mendaftarkan diri
-  const nb = await api(B, 'sdm_add', { name: 'Budi Santoso', jabatan: 'Analis' }); const budi = nb.r.id;
-  ok(nb.r.username === 'pkm01.budi' && nb.r.password.length >= 8, 'Personel baru → sub-akun pkm01.budi dibuat dengan sandi sementara');
-  ok(!(await api(B, 'bl_daftar', { kegId: +kid })).ok, 'Akun Puskesmas tidak dapat mendaftarkan peserta');
-  await S1.reload(); await S1.waitForTimeout(400); await go(S1, 'bl'); ok(/Pelatihan QC Westgard 2026/.test(await txt(S1)) && /Pendaftaran dibuka/.test(await txt(S1)), 'Sub-akun melihat kegiatan terbit');
-  ok((await S1.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl', 'Sub-akun hanya melihat menu Pembelajaran');
+  await S1.reload(); await S1.waitForTimeout(400);
+  ok(/Pelatihan QC Westgard 2026/.test(await txt(S1)) && /Pendaftaran dibuka · sisa kuota 2/.test(await txt(S1)), 'Peserta melihat kegiatan terbit dan sisa kuota');
   await go(S1, 'bl-' + kid); await S1.waitForTimeout(400);
-  ok(/Konfirmasi kehadiran/.test(await txt(S1)) && await S1.locator('[data-act=blKirim]').count() === 1 && await S1.locator('[data-act=blKosongkan]').count() === 1 && await S1.locator('a.btn[href="#bl"]').count() === 1, 'Formulir konfirmasi kehadiran dengan tombol Kirim, Kosongkan, Batal');
-  ok((await S1.inputValue('#brN')) === 'Ani ATLM' && (await S1.inputValue('#brJ')) === 'Penanggung jawab lab', 'Data terisi dari Data Personel');
-  ok(!(await api(S1, 'bl_jawab', { segId: 1, soalId: 1, v: 'a' })).ok, 'Sebelum diverifikasi, proses pembelajaran tidak dapat diakses');
-  await click(S1, '[data-act=blKosongkan]'); ok((await S1.inputValue('#brN')) === '' && (await S1.inputValue('#brJ')) === '', 'Kosongkan mengosongkan isian');
-  await S1.fill('#brN', 'Ani Lestari, A.Md.AK'); await S1.fill('#brP', '199001012020122001'); await S1.setInputFiles('#brS', F.surat); await click(S1, '[data-act=blKirim]');
-  ok(/wajib diisi/.test(await S1.evaluate(() => [...document.querySelectorAll('.toast.bad')].map(x => x.textContent).join(' '))), 'Data tidak lengkap ditolak');
-  await S1.fill('#brN', 'Ani Lestari, A.Md.AK'); await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan'); await S1.fill('#brP', '199001012020122001');
-  await S1.setInputFiles('#brS', F.besar); await click(S1, '[data-act=blKirim]');
-  ok(/1 MB/.test(await S1.evaluate(() => [...document.querySelectorAll('.toast.bad')].map(x => x.textContent).join(' '))), 'Surat tugas > 1 MB ditolak');
-  await S1.fill('#brN', 'Ani Lestari, A.Md.AK'); await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan'); await S1.fill('#brP', '199001012020122001');
-  await S1.setInputFiles('#brS', F.bukan); await click(S1, '[data-act=blKirim]');
-  ok(/PDF/.test(await S1.evaluate(() => [...document.querySelectorAll('.toast.bad')].map(x => x.textContent).join(' '))), 'Surat tugas bukan PDF ditolak');
-  await S1.fill('#brN', 'Ani Lestari, A.Md.AK'); await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan'); await S1.fill('#brP', '199001012020122001');
+  ok((await S1.inputValue('#brN')) === 'Ani Lestari, A.Md.AK' && (await S1.inputValue('#brI')) === 'Puskesmas Baru Ilir' && (await S1.inputValue('#brE')) === 'ani@contoh.id' && (await S1.inputValue('#brH')) === '081234567890', 'Formulir terisi dari akun: nama, instansi, email, No. HP');
+  ok(await S1.locator('[data-act=blKirim]').count() === 1 && await S1.locator('[data-act=blKosongkan]').count() === 1 && await S1.locator('a.btn[href="#bl"]').count() === 1, 'Tombol Kirim, Kosongkan, Batal');
+  await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan'); await S1.fill('#brP', '199001012020122001');
+  await S1.setInputFiles('#brS', F.besar); await click(S1, '[data-act=blKirim]'); ok(/1 MB/.test(await toasts(S1)), 'Surat tugas > 1 MB ditolak');
+  await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan'); await S1.fill('#brP', '199001012020122001'); await S1.fill('#brE', 'salah');
+  await S1.setInputFiles('#brS', F.surat); await click(S1, '[data-act=blKirim]'); ok(/email tidak valid/.test(await toasts(S1)), 'Email tidak valid pada formulir ditolak');
+  await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan'); await S1.fill('#brP', '199001012020122001'); await S1.fill('#brE', 'ani@contoh.id');
   await S1.setInputFiles('#brS', F.surat); await click(S1, '[data-act=blKirim]'); await S1.waitForTimeout(300);
   const waitTxt = 'Sedang menunggu verifikasi Admin, silahkan kembali ke halaman ini beberapa saat lagi';
-  ok((await S1.evaluate(() => document.querySelector('.content').innerText.trim())).endsWith(waitTxt) && !(await S1.locator('.content .tabs, .content table, .content button, .content input').count()), 'Setelah dikirim: hanya jendela polos dengan pesan menunggu verifikasi');
-  const reg = (f, p, data) => p.evaluate(async (x) => { const fd = new FormData(); Object.keys(x).forEach(k => fd.append(k, x[k])); fd.append('surat', new Blob(['%PDF-1.4 x'], { type: 'application/pdf' }), 's.pdf'); return Core.api('bl_daftar', null, { form: fd }).then(() => 'ok', e => e.message); }, data);
-  ok(/sudah didaftarkan/.test(await reg(F, S1, { kegId: kid, name: 'x', jabatan: 'x', nip: 'x' })), 'Sub-akun tidak dapat mendaftar dua kali');
-  const SB = await newPage(); await firstLogin(SB, 'pkm01.budi', nb.r.password, 'PesertaBudi123');
-  ok((await reg(F, SB, { kegId: kid, name: 'Budi Santoso', jabatan: 'Analis', nip: 'K-001' })) === 'ok', 'Sub-akun kedua mendaftar');
-  const B2 = await newPage(); await login(B2, 'pkm02', 'Puskesmas02Baru');
-  const p02 = await B2.evaluate(() => Core.S.personel[0].id), rs2 = await api(B2, 'bl_reset_sub', { personelId: p02 });
-  ok(rs2.ok && rs2.r.username === 'pkm02.petugas', 'Akun Puskesmas mereset sandi sub-akun personelnya: ' + rs2.r.username);
-  ok(!(await api(B2, 'bl_reset_sub', { personelId: ani })).ok, 'Puskesmas lain tidak dapat mereset sub-akun personel Puskesmas lain');
-  const S2 = await newPage(); await firstLogin(S2, rs2.r.username, rs2.r.password, 'PesertaDua123');
-  ok((await reg(F, S2, { kegId: kid, name: 'Petugas P02, S.Tr.Kes', jabatan: 'ATLM', nip: '198801' })) === 'ok', 'Sub-akun Puskesmas lain mendaftar');
-  await B.reload(); await B.waitForTimeout(300); await go(B, 'bl-' + kid); await B.waitForTimeout(400);
-  ok(/pkm01\.ani/.test(await txt(B)) && /pkm01\.budi/.test(await txt(B)) && /Menunggu verifikasi/.test(await txt(B)) && !/Petugas P02/.test(await txt(B)) && !(await B.locator('#brS, [data-act=blKirim]').count()), 'Akun Puskesmas hanya memantau pendaftaran personelnya');
+  ok((await S1.evaluate(() => document.querySelector('.content').innerText.trim())).endsWith(waitTxt) && !(await S1.locator('.content button, .content input').count()), 'Setelah dikirim: jendela polos menunggu verifikasi');
+  const reg = (p, data) => p.evaluate(async (x) => { const fd = new FormData(); Object.keys(x).forEach(k => fd.append(k, x[k])); fd.append('surat', new Blob(['%PDF-1.4 x'], { type: 'application/pdf' }), 's.pdf'); return Core.api('bl_daftar', null, { form: fd }).then(() => 'ok', e => e.message); }, data);
+  const rd = (who, inst) => ({ kegId: kid, name: who, jabatan: 'ATLM', nip: 'K-' + who, instansi: inst || 'Instansi ' + who, email: who.toLowerCase() + '@contoh.id', hp: '081211112222' });
+  ok(/sudah terdaftar/.test(await reg(S1, rd('Ani'))), 'Peserta tidak dapat mendaftar dua kali');
+  ok((await reg(SBu, rd('Budi'))) === 'ok', 'Peserta kedua mendaftar (kuota terisi 2 dari 2)');
+  await go(S2, 'bl'); await S2.reload(); await S2.waitForTimeout(400);
+  ok(/Kuota penuh/.test(await txt(S2)), 'Kuota penuh → peserta lain melihat "Kuota penuh"');
+  await go(S2, 'bl-' + kid); await S2.waitForTimeout(400); ok(!(await S2.locator('#brS').count()) && /Kuota penuh/.test(await txt(S2)), 'Formulir pendaftaran tertutup saat kuota penuh');
+  ok(/Kuota kegiatan ini sudah penuh/.test(await reg(S2, rd('Cici'))), 'Server menolak pendaftaran saat kuota penuh');
 
-  // ---- Admin: verifikasi
+  // ---- Admin: verifikasi & kuota terbuka kembali
   await A.reload(); await A.waitForTimeout(400);
-  ok(/3/.test(await A.evaluate(() => (document.querySelector('.nav a[href="#bl"] .nbadge') || {}).textContent || '')), 'Menu Admin menandai 3 pendaftar menunggu verifikasi');
+  ok(/2/.test(await A.evaluate(() => (document.querySelector('.nav a[href="#bl"] .nbadge') || {}).textContent || '')), 'Menu Admin menandai 2 pendaftar menunggu verifikasi');
   await click(A, '[data-act=blTab][data-v=peserta]');
+  ok(/Kuota terisi 2 dari 2/.test(await txt(A)) && /ani@contoh\.id/.test(await txt(A)) && /Puskesmas Baru Ilir/.test(await txt(A)), 'Verifikasi: kuota terisi, instansi, email/No. HP pendaftar tampil');
   d = (await api(A, 'bl_get', { id: +kid })).r;
-  const pAni = d.peserta.find(p => p.personelId === ani), pBudi = d.peserta.find(p => p.personelId === budi), pP02 = d.peserta.find(p => p.personelId === p02);
-  ok((await status(S1, 'berkas.php?j=surat&id=' + pAni.id)) === 200 && (await status(SB, 'berkas.php?j=surat&id=' + pAni.id)) === 404, 'Surat tugas hanya dapat dibuka pemiliknya, Puskesmasnya, dan Admin');
-  ok((await status(A, 'berkas.php?j=surat&id=' + pAni.id)) === 200, 'Admin dapat membuka surat tugas');
-  await click(A, `[data-act=blVerif][data-id="${pAni.id}"][data-v=lengkapi]`); await A.fill('#vMsg', 'Surat tugas belum ditandatangani Kepala Puskesmas.'); await click(A, '#vOK');
-  await click(A, `[data-act=blVerif][data-id="${pBudi.id}"][data-v=ditolak]`); await click(A, '#vOK');
-  ok(/wajib diisi/.test(await A.evaluate(() => [...document.querySelectorAll('.toast.bad')].map(x => x.textContent).join(' '))), 'Menolak tanpa pesan ditolak sistem');
+  const pAni = d.peserta.find(p => p.username === 'ani'), pBudi = d.peserta.find(p => p.username === 'budi');
+  ok((await status(S1, 'berkas.php?j=surat&id=' + pAni.id)) === 200 && (await status(SBu, 'berkas.php?j=surat&id=' + pAni.id)) === 404 && (await status(A, 'berkas.php?j=surat&id=' + pAni.id)) === 200 && (await status(W, 'berkas.php?j=surat&id=' + pAni.id)) === 404, 'Surat tugas hanya untuk pemilik dan Admin');
+  await click(A, `[data-act=blVerif][data-id="${pAni.id}"][data-v=lengkapi]`); await A.fill('#vMsg', 'Surat tugas belum ditandatangani.'); await click(A, '#vOK');
+  ok(/Kuota kegiatan ini sudah penuh/.test(await reg(S2, rd('Cici'))), '"Diminta melengkapi" tetap mengisi kuota');
   await click(A, `[data-act=blVerif][data-id="${pBudi.id}"][data-v=ditolak]`); await A.fill('#vMsg', 'Bukan tenaga laboratorium.'); await click(A, '#vOK');
-  await go(SB, 'bl-' + kid); await SB.waitForTimeout(400);
-  ok(/Ditolak/.test(await txt(SB)) && /Bukan tenaga laboratorium/.test(await txt(SB)) && !(await SB.locator('[data-act=blKirim]').count()), 'Ditolak: pesan Admin tampil, pendaftaran berhenti');
-  ok(!(await api(SB, 'bl_kirim_ulang', { kegId: +kid, name: 'x', jabatan: 'x', nip: 'x' })).ok, 'Pendaftaran yang ditolak tidak dapat dikirim ulang');
+  await S2.reload(); await S2.waitForTimeout(400); await go(S2, 'bl'); ok(/sisa kuota 1/.test(await txt(S2)), 'Pendaftar ditolak → formulir terbuka kembali (sisa kuota 1)');
+  ok((await reg(S2, rd('Cici', 'RSUD Kanujoso'))) === 'ok', 'Peserta berikutnya dapat mendaftar setelah kuota terbuka');
+  ok(/sudah penuh/.test(await reg(SD, rd('Dedi'))), 'Kuota penuh lagi → pendaftar berikutnya ditolak');
+  await go(SBu, 'bl-' + kid); await SBu.waitForTimeout(400);
+  ok(/Ditolak/.test(await txt(SBu)) && /Bukan tenaga laboratorium/.test(await txt(SBu)) && !(await SBu.locator('[data-act=blKirim]').count()), 'Ditolak: pesan Admin tampil, pendaftaran berhenti');
   await S1.reload(); await S1.waitForTimeout(300); await go(S1, 'bl-' + kid); await S1.waitForTimeout(400);
-  ok(/Perlu dilengkapi/.test(await txt(S1)) && /belum ditandatangani Kepala Puskesmas/.test(await txt(S1)), 'Diminta melengkapi: pesan Admin tampil');
-  ok((await B.evaluate(() => Core.api('state').then(() => Core.S.notifs.filter(n => /Pelatihan QC/.test(n.text)).length))) >= 2, 'Akun Puskesmas mendapat notifikasi hasil verifikasi');
+  ok(/Perlu dilengkapi/.test(await txt(S1)) && /belum ditandatangani/.test(await txt(S1)), 'Diminta melengkapi: pesan Admin tampil');
   await S1.fill('#brJ', 'Pranata Laboratorium Kesehatan Ahli Pertama'); await S1.setInputFiles('#brS', F.surat); await click(S1, '[data-act=blKirim][data-ulang="1"]');
-  d = (await api(A, 'bl_get', { id: +kid })).r; ok(d.peserta.find(p => p.id === pAni.id).status === 'menunggu' && d.peserta.find(p => p.id === pAni.id).jabatan === 'Pranata Laboratorium Kesehatan Ahli Pertama', 'Dilengkapi & dikirim ulang → kembali menunggu verifikasi');
-  await A.reload(); await A.waitForTimeout(400); await click(A, '[data-act=blTab][data-v=peserta]');
-  await click(A, `[data-act=blVerif][data-id="${pAni.id}"][data-v=diterima]`); await click(A, '#vOK'); await A.waitForTimeout(300);
-  ok((await api(A, 'bl_get', { id: +kid })).r.peserta.find(p => p.id === pAni.id).status === 'diterima', 'Admin menerima peserta');
-  const acc2 = await api(A, 'bl_verif', { id: pP02.id, v: 'diterima' }); ok(acc2.ok, 'Peserta Puskesmas lain diterima');
-  ok(!(await api(A, 'bl_verif', { id: pP02.id, v: 'ditolak', msg: 'x' })).ok, 'Pendaftaran yang sudah diverifikasi tidak dapat diverifikasi ulang');
+  d = (await api(A, 'bl_get', { id: +kid })).r; const pCici = d.peserta.find(p => p.username === 'cici');
+  ok(d.peserta.find(p => p.id === pAni.id).status === 'menunggu', 'Dilengkapi & dikirim ulang → menunggu verifikasi');
+  await api(A, 'bl_verif', { id: pAni.id, v: 'diterima' }); await api(A, 'bl_verif', { id: pCici.id, v: 'diterima' });
+  ok(!(await api(A, 'bl_keg_update', { id: +kid, k: 'kuota', v: '1' })).ok && (await api(A, 'bl_keg_update', { id: +kid, k: 'kuota', v: '3' })).ok, 'Kuota tidak boleh di bawah jumlah peserta diterima; kuota dapat dinaikkan');
+  await api(A, 'bl_keg_update', { id: +kid, k: 'kuota', v: '2' });
 
-  // ---- Peserta (sub-akun)
-  ok(!(await api(S1, 'sheet_get', { id: 1 })).ok && !(await api(S1, 'risk_save', { aspect: 'bahan', items: [] })).ok && (await S1.evaluate(() => Core.S.sheets.length + Core.S.alats.length + Core.S.bhp.length)) === 0, 'Sub-akun tidak dapat mengakses data QC/Manajemen Risiko/Sumber Daya Puskesmas');
-  await S1.reload(); await S1.waitForTimeout(400); await go(S1, 'bl-' + kid); await S1.waitForTimeout(400);
-  const st1 = await txt(S1); ok(/Selamat datang, Ani Lestari, A\.Md\.AK/.test(st1) && /Pretest/.test(st1) && /Aturan Westgard/.test(st1) && /Dr\. Rina Fasilitator/.test(st1), 'Halaman utama pembelajaran: ucapan selamat datang, segmen, sesi, PIC');
-  d = (await api(S1, 'bl_get', { id: +kid })).r;
-  const mat = d.materi[0]; ok(!mat && d.materiLocked, 'Materi terkunci sebelum Pretest diselesaikan');
-  const mid = (await api(A, 'bl_get', { id: +kid })).r.materi[0].id;
-  ok((await status(S1, 'berkas.php?j=materi&id=' + mid)) === 404, 'Unduhan materi ditolak sebelum Pretest selesai');
-  ok((await status(S1, 'berkas.php?j=surat&id=' + pP02.id)) === 404 && (await status(B2, 'berkas.php?j=surat&id=' + pAni.id)) === 404, 'Surat tugas tidak dapat dibuka peserta/Puskesmas lain');
-
-  // ---- Pembina (pembuka) membuka Pretest
-  await P.reload(); await P.waitForTimeout(300); await go(P, 'bl-' + kid); await P.waitForTimeout(500);
-  const segs = d.segs; const pre = segs[0], post = segs[4], pen = segs[5];
+  // ---- pembelajaran
+  const P = await newPage(); await firstLogin(P, 'pembina1', uP.password, 'Pembina1Baru');
+  ok(!(await api(S1, 'bl_jawab', { segId: d.segs[0].id, soalId: 1, v: 'a' })).ok, 'Segmen belum dibuka: jawaban ditolak');
+  const segs = d.segs, pre = segs[0], post = segs[4], pen = segs[5];
+  await go(P, 'bl-' + kid); await P.waitForTimeout(400);
   await P.click(`[data-act=blSegState][data-id="${pre.id}"][data-v=buka]`); await P.waitForTimeout(200); await click(P, '#cbOK');
-  ok((await api(P, 'bl_get', { id: +kid })).r.segs[0].status === 'buka', 'Pembina yang dipilih Admin membuka Pretest');
-  ok(!(await api(FA, 'bl_soal_save', { kegId: +kid, id: 0, text: 'x', oa: 'a', ob: 'b', oc: 'c', od: 'd', key: 'a' })).ok, 'Soal terkunci setelah Pretest dibuka');
-  // peserta menjawab: Ani 15 benar dari 25 lewat antarmuka sebagian
-  await S1.reload(); await S1.waitForTimeout(400); await go(S1, 'bl-' + kid); await S1.waitForTimeout(400);
-  ok(await S1.locator(`a[href="#bl-${kid}-s${pre.id}"]`).count() === 1, 'Tombol "Mulai segmen" tampil saat segmen dibuka');
-  await S1.click(`a[href="#bl-${kid}-s${pre.id}"]`); await S1.waitForTimeout(500);
+  ok((await api(P, 'bl_get', { id: +kid })).r.segs[0].status === 'buka', 'Pembina pembuka segmen membuka Pretest');
+  ok(!(await api(W, 'bl_seg_state', { id: pre.id, v: 'tutup' })).ok && !(await api(W, 'bl_verif', { id: pAni.id, v: 'diterima' })).ok && !(await api(W, 'bl_nilai', { pesertaId: pAni.id, aspekId: 1, v: '90' })).ok, 'Pengawas tidak dapat membuka segmen, verifikasi, atau menilai');
   const soalA = (await api(A, 'bl_get', { id: +kid })).r.soal; const kunci = {}; soalA.forEach(q => kunci[q.id] = q.key);
+  await S1.reload(); await S1.waitForTimeout(400); await go(S1, `bl-${kid}-s${pre.id}`); await S1.waitForTimeout(500);
   const qs = (await api(S1, 'bl_get', { id: +kid })).r.tests[pre.id].soal;
-  ok(qs.length === 25 && qs.every(q => !('key' in q)) && qs.map(q => q.id).join() === soalA.map(q => q.id).join(), 'Pretest: 25 soal tanpa kunci jawaban, urutan asli');
   const wrong = k => ({ a: 'b', b: 'c', c: 'd', d: 'a' })[k];
-  for (let i = 0; i < 3; i++) { await S1.check(`[data-bljawab="${qs[i].id}"][value="${kunci[qs[i].id]}"]`); await S1.waitForTimeout(250); }
-  ok(/Terjawab 3\/25/.test(await txt(S1)), 'Jawaban tersimpan per soal (penghitung 3/25)');
-  await S1.reload(); await S1.waitForTimeout(500); await go(S1, `bl-${kid}-s${pre.id}`); await S1.waitForTimeout(500);
-  ok(await S1.isChecked(`[data-bljawab="${qs[1].id}"][value="${kunci[qs[1].id]}"]`), 'Jawaban tetap ada setelah halaman dimuat ulang');
-  for (let i = 3; i < 15; i++) await api(S1, 'bl_jawab', { segId: pre.id, soalId: qs[i].id, v: kunci[qs[i].id] });
-  for (let i = 15; i < 24; i++) await api(S1, 'bl_jawab', { segId: pre.id, soalId: qs[i].id, v: wrong(kunci[qs[i].id]) });
-  // pemantauan
-  await A.reload(); await A.waitForTimeout(400); await click(A, '[data-act=blTab][data-v=pantau]');
-  ok(/Terjawab 24\/25/.test(await txt(A)), 'Pemantauan Admin: progres jawaban peserta (24/25)');
-  await S1.reload(); await S1.waitForTimeout(400); await go(S1, `bl-${kid}-s${pre.id}`); await S1.waitForTimeout(400);
-  await S1.click(`[data-act=blSelesai][data-id="${pre.id}"]`); await S1.waitForTimeout(200);
-  ok(/1 soal yang belum dijawab/.test(await S1.evaluate(() => document.querySelector('.modal').innerText)), 'Peringatan soal belum dijawab sebelum menyelesaikan');
-  await click(S1, '#cbOK'); await S1.waitForTimeout(300);
-  ok(!(await api(S1, 'bl_jawab', { segId: pre.id, soalId: qs[24].id, v: 'a' })).ok, 'Setelah diselesaikan, jawaban tidak dapat diubah');
-  d = (await api(S1, 'bl_get', { id: +kid })).r; ok(d.materi.length === 1 && (await status(S1, 'berkas.php?j=materi&id=' + mid)) === 200, 'Materi dapat diunduh setelah Pretest diselesaikan');
-  // peserta 2: 10 benar, tidak menyelesaikan materi 2
+  for (let i = 0; i < 2; i++) { await S1.check(`[data-bljawab="${qs[i].id}"][value="${kunci[qs[i].id]}"]`); await S1.waitForTimeout(250); }
+  ok(/Terjawab 2\/25/.test(await txt(S1)), 'Jawaban tersimpan per soal');
+  for (let i = 2; i < 15; i++) await api(S1, 'bl_jawab', { segId: pre.id, soalId: qs[i].id, v: kunci[qs[i].id] });
+  for (let i = 15; i < 25; i++) await api(S1, 'bl_jawab', { segId: pre.id, soalId: qs[i].id, v: wrong(kunci[qs[i].id]) });
+  await api(S1, 'bl_selesai', { segId: pre.id });
   for (let i = 0; i < 25; i++) await api(S2, 'bl_jawab', { segId: pre.id, soalId: qs[i].id, v: i < 10 ? kunci[qs[i].id] : wrong(kunci[qs[i].id]) });
   await api(S2, 'bl_selesai', { segId: pre.id });
-  await api(P, 'bl_seg_state', { id: pre.id, v: 'tutup' });
-  ok(!(await api(S2, 'bl_jawab', { segId: pre.id, soalId: qs[0].id, v: 'a' })).ok, 'Segmen ditutup → jawaban terkunci');
+  // Pengawas: timeline
+  await W.reload(); await W.waitForTimeout(400); await go(W, 'bl-' + kid); await W.waitForTimeout(500);
+  const wt = await txt(W);
+  ok((await W.locator('.timeline .tl-item').count()) === segs.length + 1 && /2 dari 2 peserta menyelesaikan · rata-rata nilai 50/.test(wt) && /Sedang berlangsung/.test(wt) && /Hasil akhir/.test(wt) && /Predikat diumumkan/.test(wt), 'Pengawas: kartu timeline sesuai rundown (progres Pretest 2/2, rata-rata 50) + kartu Hasil akhir');
+  const order = await W.evaluate(() => [...document.querySelectorAll('.timeline .tl-item b')].map(b => b.textContent.replace(/^\d+\.\s*/, '')));
+  ok(order.slice(0, segs.length).join('|') === segs.map(s => s.title).join('|'), 'Urutan kartu = rundown segmen');
+  ok(!(await W.locator('.tabs, input, [data-act=blVerif], [data-act=blSegState]').count()), 'Pengawas hanya melihat (tanpa tombol aksi)');
+  const W2 = await newPage(); await firstLogin(W2, 'pengawas2', uW2.password, 'Pengawas2Baru');
+  ok((await W2.evaluate(() => Core.S.bl.length)) === 0 && !(await api(W2, 'bl_get', { id: +kid })).ok, 'Pengawas yang tidak ditugaskan tidak melihat kegiatan');
   // materi & praktik
+  await api(P, 'bl_seg_state', { id: pre.id, v: 'tutup' });
   for (const s of [segs[1], segs[2], segs[3]]) await api(P, 'bl_seg_state', { id: s.id, v: 'buka' });
-  await go(S1, `bl-${kid}-s${segs[1].id}`); await S1.waitForTimeout(500);
-  ok(/Modul Westgard/.test(await txt(S1)) && /Ahli Teknologi Laboratorium Medik/.test(await txt(S1)), 'Segmen materi: daftar materi & profil narasumber');
-  const [dl] = await Promise.all([S1.waitForEvent('download', { timeout: 10000 }).catch(() => null), S1.click('a[href*="j=materi"]')]);
-  ok(dl && fs.readFileSync(await dl.path()).slice(0, 5).toString() === '%PDF-', 'Peserta mengunduh materi PDF');
+  const mid = (await api(A, 'bl_get', { id: +kid })).r.materi[0].id;
+  ok((await status(S1, 'berkas.php?j=materi&id=' + mid)) === 200 && (await status(SBu, 'berkas.php?j=materi&id=' + mid)) === 404, 'Materi untuk peserta diterima yang sudah Pretest');
   for (const s of [segs[1], segs[2], segs[3]]) await api(S1, 'bl_selesai', { segId: s.id });
   await api(S2, 'bl_selesai', { segId: segs[1].id }); await api(S2, 'bl_selesai', { segId: segs[2].id });
   for (const s of [segs[1], segs[2], segs[3]]) await api(P, 'bl_seg_state', { id: s.id, v: 'tutup' });
-  ok(!(await api(S2, 'bl_selesai', { segId: segs[3].id })).ok, 'Segmen yang ditutup tidak dapat diselesaikan lagi');
-  // penilaian sikap & praktik (Ani: Kedisiplinan 90, Kerja sama kosong=70, praktik 85; peserta 2: praktik kosong=60)
   const asp = (await api(FA, 'bl_get', { id: +kid })).r.aspek;
-  await go(FA, 'bl-' + kid); await FA.reload(); await FA.waitForTimeout(400); await click(FA, '[data-act=blTab][data-v=nilai]');
-  await FA.fill(`[data-blnilai="${pAni.id}"][data-asp="${asp[0].id}"]`, '90'); await FA.press(`[data-blnilai="${pAni.id}"][data-asp="${asp[0].id}"]`, 'Tab'); await FA.waitForTimeout(400);
-  await api(FA, 'bl_nilai', { pesertaId: pAni.id, aspekId: asp[2].id, v: '85' });
-  ok(!(await api(FA, 'bl_nilai', { pesertaId: pAni.id, aspekId: asp[1].id, v: '120' })).ok, 'Nilai di luar 0–100 ditolak');
-  // post test
+  await api(FA, 'bl_nilai', { pesertaId: pAni.id, aspekId: asp[0].id, v: '90' }); await api(FA, 'bl_nilai', { pesertaId: pAni.id, aspekId: asp[2].id, v: '85' });
   await api(P, 'bl_seg_state', { id: post.id, v: 'buka' });
-  const qp = (await api(S1, 'bl_get', { id: +kid })).r.tests[post.id].soal;
-  const qp2 = (await api(S2, 'bl_get', { id: +kid })).r.tests[post.id].soal;
-  ok(qp.length === 25 && qp.map(q => q.id).join() !== qs.map(q => q.id).join() && qp.map(q => q.id).sort().join() === qs.map(q => q.id).sort().join(), 'Post test: soal sama dengan urutan diacak');
-  ok(qp.map(q => q.id).join() !== qp2.map(q => q.id).join(), 'Urutan acak berbeda tiap peserta');
-  const qpAgain = (await api(S1, 'bl_get', { id: +kid })).r.tests[post.id].soal; ok(qpAgain.map(q => q.id).join() === qp.map(q => q.id).join(), 'Urutan acak tetap sama saat dibuka ulang');
   for (let i = 0; i < 25; i++) await api(S1, 'bl_jawab', { segId: post.id, soalId: qs[i].id, v: i < 22 ? kunci[qs[i].id] : wrong(kunci[qs[i].id]) });
   await api(S1, 'bl_selesai', { segId: post.id });
   for (let i = 0; i < 25; i++) await api(S2, 'bl_jawab', { segId: post.id, soalId: qs[i].id, v: i < 20 ? kunci[qs[i].id] : wrong(kunci[qs[i].id]) });
   await api(S2, 'bl_selesai', { segId: post.id });
   await api(P, 'bl_seg_state', { id: post.id, v: 'tutup' });
-  // penutup: penilaian narasumber
   await api(P, 'bl_seg_state', { id: pen.id, v: 'buka' });
-  await go(S1, `bl-${kid}-s${pen.id}`); await S1.waitForTimeout(500);
-  ok((await S1.locator('[data-bleval]').count()) === 10 && /Penguasaan materi/.test(await txt(S1)) && /Sikap dan penampilan/.test(await txt(S1)), 'Penutup: 10 aspek penilaian narasumber');
-  await S1.fill(`[data-bleval][data-asp="0"]`, '95'); await S1.press(`[data-bleval][data-asp="0"]`, 'Tab'); await S1.waitForTimeout(300);
-  ok(!(await api(S1, 'bl_selesai', { segId: pen.id })).ok, 'Penutup tidak dapat diselesaikan sebelum semua aspek dinilai');
   const narsum = (await api(S1, 'bl_get', { id: +kid })).r.narsum.map(x => x.id);
-  for (const nid of narsum) for (let i = 0; i < 10; i++) await api(S1, 'bl_eval', { segId: pen.id, narsumId: nid, aspek: i, v: String(80 + i) });
-  await api(S1, 'bl_selesai', { segId: pen.id });
-  for (const nid of narsum) for (let i = 0; i < 10; i++) await api(S2, 'bl_eval', { segId: pen.id, narsumId: nid, aspek: i, v: '70' });
-  await api(S2, 'bl_selesai', { segId: pen.id });
-  // sebelum semua ditutup: hasil tampil, predikat belum
-  d = (await api(S1, 'bl_get', { id: +kid })).r;
-  ok(d.result && d.result.mine && !d.result.predikat, 'Seluruh segmen selesai → nilai & peringkat tampil; predikat menunggu semua segmen ditutup');
+  for (const nid of narsum) for (let i = 0; i < 10; i++) { await api(S1, 'bl_eval', { segId: pen.id, narsumId: nid, aspek: i, v: String(80 + i) }); await api(S2, 'bl_eval', { segId: pen.id, narsumId: nid, aspek: i, v: '70' }); }
+  await api(S1, 'bl_selesai', { segId: pen.id }); await api(S2, 'bl_selesai', { segId: pen.id });
   await api(P, 'bl_seg_state', { id: pen.id, v: 'tutup' });
   d = (await api(S1, 'bl_get', { id: +kid })).r; const r1 = d.result.mine;
-  // perhitungan: Ani pre 60, post 88, progres 28, gain 70, sikap (90+70)/2=80, praktik 85, selesai 100%
-  // terbaik = .30*88 + .30*85 + .25*80 + .15*70 = 82.4
-  ok(r1.pre === 60 && r1.post === 88 && r1.progres === 28 && r1.gain === 70 && r1.sikap === 80 && r1.praktik === 85 && r1.complete === 100 && r1.terbaik === 82.4, 'Nilai Ani: pre 60, post 88, progres 28, sikap 80, praktik 85, skor terbaik 82,4');
-  const r2s = (await api(S2, 'bl_get', { id: +kid })).r.result.mine;
-  // peserta 2: pre 40, post 80, progres 40, gain 66.7, sikap (80+70)/2=75 (materi selesai), praktik tidak tercatat (tidak menyelesaikan) → 0, selesai 5/6
-  // terbaik = .30*80 + 0 + .25*75 + .15*66.67 = 52.75
-  ok(r2s.pre === 40 && r2s.post === 80 && r2s.progres === 40 && r2s.praktik === null && r2s.complete === 83.3 && r2s.terbaik === 52.8, 'Peserta 2: segmen praktik tidak diselesaikan → tidak tercatat; skor terbaik 52,8');
-  ok(r1.rank.post === 1 && r1.rank.progres === 2 && r1.rank.complete === 1 && r1.rank.terbaik === 1 && r2s.rank.progres === 1, 'Peringkat tiap kategori benar');
-  const pr = d.result.predikat;
-  ok(pr.post[0].me && pr.terbaik[0].me && !pr.progres[0].me && /Petugas P02/.test(pr.progres[0].name), 'Predikat: Nilai Tertinggi & Peserta Terbaik = Ani; Progres Terbesar = peserta 2');
+  ok(r1.pre === 60 && r1.post === 88 && r1.sikap === 80 && r1.praktik === 85 && r1.terbaik === 82.4 && r1.instansi === 'Puskesmas Baru Ilir', 'Nilai Ani: pre 60, post 88, sikap 80, praktik 85, skor terbaik 82,4');
+  const r2 = (await api(S2, 'bl_get', { id: +kid })).r.result.mine;
+  ok(r2.pre === 40 && r2.post === 80 && r2.praktik === null && r2.terbaik === 52.8, 'Cici: praktik tidak diselesaikan → tidak tercatat; skor terbaik 52,8');
+  ok(d.result.predikat.post[0].me && d.result.predikat.terbaik[0].me && /Cici/.test(d.result.predikat.progres[0].name) && d.result.predikat.progres[0].instansi === 'RSUD Kanujoso', 'Predikat dengan nama & instansi');
   await go(S1, 'bl-' + kid); await S1.waitForTimeout(500);
-  const rt = await txt(S1);
-  ok(/Hasil pembelajaran saya/.test(rt) && /Nilai post test/.test(rt) && /Penyelesaian Pembelajaran/.test(rt) && /peringkat 1 dari 2/.test(rt) && /Selamat! Anda meraih predikat Nilai Tertinggi, Peserta Terbaik/.test(rt) && /Progres Terbesar/.test(rt), 'Peserta melihat nilai, peringkat, dan ucapan selamat predikat');
-  const rt2 = await (async () => { await go(S2, 'bl-' + kid); await S2.waitForTimeout(500); return txt(S2); })();
-  ok(/Selamat! Anda meraih predikat Progres Terbesar/.test(rt2) && !/88/.test(rt2.split('Peraih predikat')[0]), 'Peserta lain hanya melihat nilainya sendiri');
-  // rekap Admin
+  ok(/Selamat! Anda meraih predikat Nilai Tertinggi, Peserta Terbaik/.test(await txt(S1)) && /RSUD Kanujoso/.test(await txt(S1)), 'Peserta melihat hasil, ucapan predikat, dan instansi peraih');
+  // Pengawas: hasil akhir
+  await W.reload(); await W.waitForTimeout(400); await go(W, 'bl-' + kid); await W.waitForTimeout(500);
+  const wf = await txt(W);
+  ok(/Hasil akhir/.test(wf) && /Nilai Tertinggi/.test(wf) && /Ani Lestari/.test(wf) && /82,4/.test(wf) && !/Predikat diumumkan/.test(wf) && (await W.locator('.tl-item.tutup').count()) === segs.length + 1, 'Pengawas: hasil akhir (predikat & skor) setelah semua segmen ditutup');
+  // Riwayat saya
+  await go(S1, 'bl-riwayat'); await S1.waitForTimeout(500);
+  const rw = await txt(S1);
+  ok(/Riwayat saya/.test(rw) && /Pelatihan QC Westgard 2026/.test(rw) && /Diterima/.test(rw) && /88/.test(rw) && /Nilai Tertinggi, Peserta Terbaik/.test(rw), 'Riwayat saya: kegiatan, status, nilai, predikat');
+  await go(SBu, 'bl-riwayat'); await SBu.waitForTimeout(500); ok(/Ditolak/.test(await txt(SBu)), 'Riwayat peserta ditolak menampilkan status Ditolak');
+  ok(!(await api(W, 'bl_riwayat', {})).ok, 'Riwayat hanya untuk peserta');
+  // rekap
   await A.reload(); await A.waitForTimeout(400); await click(A, '[data-act=blTab][data-v=rekap]');
-  const at = await txt(A);
-  ok(/Nilai Tertinggi/.test(at) && /82,4/.test(at) && /Penilaian peserta terhadap narasumber/.test(at) && /Penguasaan materi/.test(at), 'Rekap Admin: nilai, predikat, penilaian narasumber');
-  const ev = (await api(P, 'bl_get', { id: +kid })).r.eval; ok(ev.length === 1 && ev[0].per[0] === 75 && ev[0].n === 2, 'Rekap penilaian narasumber (rata-rata 2 penilai)');
-  // Puskesmas memantau & reset sandi sub-akun
-  await B.reload(); await B.waitForTimeout(300); await go(B, 'bl-' + kid); await B.waitForTimeout(400);
-  ok(/pkm01\.ani/.test(await txt(B)) && /Penyelesaian 100% · Pretest 60 · Post test 88/.test(await txt(B)), 'Akun Puskesmas memantau progres personelnya');
-  await go(B, 'sd-sdm-' + ani); await B.waitForTimeout(300); ok(/pkm01\.ani/.test(await txt(B)), 'Data Personel menampilkan sub-akun');
-  await click(B, `[data-act=subReset][data-id="${ani}"]`); await click(B, '#srOK'); await B.waitForTimeout(300);
-  const newPw = await B.evaluate(() => document.querySelectorAll('.modal code')[1].textContent); await B.click('.modal [data-close]');
-  const S1b = await newPage(); await login(S1b, 'pkm01.ani', newPw); ok(/ganti kata sandi sementara/.test(await txt(S1b)), 'Reset sandi sub-akun dari Data Personel berfungsi');
-  await api(B, 'sdm_active', { id: budi, v: false });
-  const SB2 = await newPage(); await login(SB2, 'pkm01.budi', 'PesertaBudi123'); ok(/salah/.test(await txt(SB2)), 'Personel dinonaktifkan → sub-akun ikut nonaktif');
-  await api(B, 'sdm_active', { id: budi, v: true }); await login(SB2, 'pkm01.budi', 'PesertaBudi123'); ok(!/salah/.test(await txt(SB2)), 'Personel diaktifkan kembali → sub-akun aktif lagi');
+  ok(/82,4/.test(await txt(A)) && /Penilaian peserta terhadap narasumber/.test(await txt(A)), 'Rekap Admin: nilai & penilaian narasumber');
+
+  // ---- Admin: kelola akun
+  await go(A, 'bl-pengguna'); await A.waitForTimeout(300);
+  const vals = await A.evaluate(() => [...document.querySelectorAll('[data-bluser]')].map(i => i.value).join(' '));
+  ok(/ani@contoh\.id/.test(vals) && /Puskesmas Baru Ilir/.test(vals), 'Daftar pengguna menampilkan akun peserta beserta email & instansi');
+  const bud = await A.evaluate(() => Core.S.users.find(u => u.username === 'budi').id);
+  await A.uncheck(`[data-act=blUserActive][data-id="${bud}"]`); await A.waitForTimeout(500);
+  await login(X, 'budi', 'PesertaBudi123'); ok(/salah/.test(await txt(X)), 'Akun dinonaktifkan Admin tidak bisa masuk');
+  await click(A, `[data-act=blUserReset][data-id="${await A.evaluate(() => Core.S.users.find(u => u.username === 'dedi').id)}"]`); await click(A, '#cbOK');
+  const pwD = await A.evaluate(() => document.querySelectorAll('.modal code')[1].textContent); await A.click('.modal [data-close]');
+  await login(X, 'dedi', pwD); ok(/ganti kata sandi sementara/.test(await txt(X)), 'Reset sandi oleh Admin → wajib ganti saat masuk');
+  ok(!(await api(S1, 'bl_user_active', { id: bud, v: true })).ok, 'Selain Admin tidak dapat mengelola akun');
   // arsip
   await api(A, 'bl_keg_status', { id: +kid, v: 'arsip' });
-  const FA2 = await newPage(); await login(FA2, 'fasil1', 'Fasilitator1Baru'); ok(/salah/.test(await txt(FA2)), 'Kegiatan diarsipkan → akun Fasilitator dinonaktifkan');
-  ok(!(await api(P, 'bl_aspek_add', { kegId: +kid, jenis: 'sikap', name: 'x', def: 1 })).ok && !(await api(A, 'bl_keg_update', { id: +kid, k: 'title', v: 'x' })).ok, 'Kegiatan arsip tidak dapat diubah');
-  ok((await api(S2, 'bl_get', { id: +kid })).r.result.mine.post === 80, 'Peserta tetap dapat melihat hasil setelah diarsipkan');
+  const X2 = await newPage(); await login(X2, 'fasil1', 'Fasilitator1Baru'); ok(/salah/.test(await txt(X2)), 'Kegiatan diarsipkan → akun Fasilitator dinonaktifkan');
+  ok((await api(S2, 'bl_get', { id: +kid })).r.result.mine.post === 80 && (await api(W, 'bl_get', { id: +kid })).ok, 'Peserta & Pengawas tetap dapat melihat hasil setelah diarsipkan');
 
-  // watermark hak cipta di setiap halaman
+  // watermark
   const wm = 'Si PANDU © 2026 Adi Darma Aprianda, S.Tr.Kes, M.H.';
-  const L = await newPage(); await L.goto(BASE + '/');
-  const wmc = async p => p.evaluate(() => { const w = document.querySelector('.hak-cipta'); if (!w) return null; const r = w.getBoundingClientRect(); return { t: w.textContent, fixed: getComputedStyle(w).position === 'fixed', br: r.right > innerWidth - 40 && r.bottom > innerHeight - 30 }; });
-  const w1 = await wmc(L), w2 = await wmc(A), w3 = await wmc(S2), w4 = await wmc(S1b);
-  ok([w1, w2, w3, w4].every(w => w && w.t === wm && w.fixed && w.br), 'Watermark "' + wm + '" di pojok kanan bawah: halaman masuk, ganti sandi wajib, aplikasi');
+  const L = await newPage(); await L.goto(BL + '/'); const L2 = await newPage(); await L2.goto(BL + '/?daftar=1');
+  const wmc = async p => p.evaluate(() => { const w = document.querySelector('.hak-cipta'); return w ? w.textContent : null; });
+  ok([await wmc(L), await wmc(L2), await wmc(A), await wmc(W)].every(x => x === wm), 'Watermark hak cipta di halaman masuk, buat akun, dan aplikasi subdomain');
   console.log(errors.length ? 'GALAT JS:\n' + errors.join('\n') : 'Tanpa galat JavaScript');
   console.log(`pemeriksaan: ${n}, gagal: ${fail}`);
   await browser.close(); process.exit(fail || errors.length ? 1 : 0);
