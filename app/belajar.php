@@ -4,7 +4,8 @@
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
 const BL_JENIS = ['pretest', 'materi', 'praktik', 'posttest', 'penutup'];
-const BL_NSOAL = 25;
+const BL_NSOAL = 25;        // jumlah soal maksimal
+const BL_NSOAL_MIN = 10;    // jumlah soal minimal untuk membuka Pretest/Post test (nilai = benar ÷ jumlah soal × 100)
 const BL_NEVAL = 10;
 /** Bobot Peserta Terbaik (kesepakatan): posttest 30, praktik 30, sikap 25, progres 15 */
 const BL_BOBOT = ['post' => 30, 'praktik' => 30, 'sikap' => 25, 'progres' => 15];
@@ -550,7 +551,7 @@ function bl_api(string $a, array $d, array $u)
             need($k['status'] === 'terbit', 'bl.galat.belum_terbit', 400);
             if ($v === 'buka') {
                 need($s['status'] === 'belum', 'bl.galat.status_segmen', 400);
-                if (in_array($s['jenis'], ['pretest', 'posttest'], true)) need((int)qval('SELECT COUNT(*) FROM bl_soal WHERE keg_id = ?', [$k['id']]) === BL_NSOAL, 'bl.galat.soal_kurang', 400);
+                if (in_array($s['jenis'], ['pretest', 'posttest'], true)) { $ns = (int)qval('SELECT COUNT(*) FROM bl_soal WHERE keg_id = ?', [$k['id']]); need($ns >= BL_NSOAL_MIN && $ns <= BL_NSOAL, 'bl.galat.soal_kurang', 400); }
                 q("UPDATE bl_seg SET status = 'buka', dibuka_at = ? WHERE id = ?", [now_str(), $s['id']]);
             } elseif ($v === 'tutup') {
                 need($s['status'] === 'buka', 'bl.galat.status_segmen', 400);

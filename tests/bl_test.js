@@ -142,7 +142,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   ok((await api(FA, 'bl_get_profil', {})).r.foto, 'Profil & foto narasumber tersimpan');
   await go(FA, 'bl-' + kid); await FA.waitForTimeout(400); await click(FA, '[data-act=blTab][data-v=soal]');
   await FA.fill('#sqT', 'Aturan 1-3s berarti?'); for (const x of ['a', 'b', 'c', 'd']) await FA.fill('#sq' + x, 'Pilihan ' + x.toUpperCase()); await FA.selectOption('#sqK', 'c'); await click(FA, '[data-act=blSoalSave]');
-  ok(/1 dari 25/.test(await txt(FA)), 'Soal ditambahkan lewat formulir');
+  ok(/Tersimpan: 1 soal\./.test(await txt(FA)) && /10–25 soal/.test(await txt(FA)), 'Soal ditambahkan lewat formulir; keterangan 10–25 soal');
   const keys = 'abcdabcdabcdabcdabcdabcd'.split('');
   for (let i = 0; i < 24; i++) await api(FA, 'bl_soal_save', { kegId: +kid, text: 'Soal ' + (i + 2), oa: 'A', ob: 'B', oc: 'C', od: 'D', key: keys[i] });
   await click(FA, '[data-act=blTab][data-v=materi]');
@@ -289,6 +289,27 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await api(A, 'bl_keg_status', { id: +kid, v: 'arsip' });
   const X2 = await newPage(); await login(X2, 'fasil1', 'Fasilitator1Baru'); ok(/salah/.test(await txt(X2)), 'Kegiatan diarsipkan → akun Fasilitator dinonaktifkan');
   ok((await api(S2, 'bl_get', { id: +kid })).r.result.mine.post === 80 && (await api(W, 'bl_get', { id: +kid })).ok, 'Peserta & Pengawas tetap dapat melihat hasil setelah diarsipkan');
+
+  // ---- jumlah soal 10–25: nilai = benar ÷ jumlah soal × 100
+  const k2 = (await api(A, 'bl_keg_add', { title: 'Kegiatan 12 soal', org: 'Labkesda', kuota: '5' })).r.id;
+  let d2 = (await api(A, 'bl_get', { id: k2 })).r; const pre2 = d2.segs[0], post2 = d2.segs.find(s => s.jenis === 'posttest');
+  for (let i = 0; i < 9; i++) await api(P, 'bl_soal_save', { kegId: k2, text: 'S' + i, oa: 'A', ob: 'B', oc: 'C', od: 'D', key: 'abcd'[i % 4] });
+  await api(A, 'bl_keg_status', { id: k2, v: 'terbit' }); await api(A, 'bl_keg_daftar', { id: k2, v: true });
+  ok(/10–25 soal/.test((await api(A, 'bl_seg_state', { id: pre2.id, v: 'buka' })).e || ''), 'Pretest dengan 9 soal tidak dapat dibuka (minimal 10)');
+  for (let i = 9; i < 12; i++) await api(P, 'bl_soal_save', { kegId: k2, text: 'S' + i, oa: 'A', ob: 'B', oc: 'C', od: 'D', key: 'abcd'[i % 4] });
+  ok((await reg(SE, { kegId: k2, name: 'Eka', jabatan: 'ATLM', nip: '1', instansi: 'Puskesmas Damai', email: 'eka@contoh.id', hp: '081300000002' })) === 'ok', 'Peserta mendaftar kegiatan 12 soal');
+  d2 = (await api(A, 'bl_get', { id: k2 })).r; await api(A, 'bl_verif', { id: d2.peserta[0].id, v: 'diterima' });
+  ok((await api(A, 'bl_seg_state', { id: pre2.id, v: 'buka' })).ok, 'Pretest dengan 12 soal dapat dibuka');
+  const kunci2 = {}; d2.soal.forEach(q => kunci2[q.id] = q.key);
+  const q2 = (await api(SE, 'bl_get', { id: k2 })).r.tests[pre2.id].soal;
+  for (let i = 0; i < 12; i++) await api(SE, 'bl_jawab', { segId: pre2.id, soalId: q2[i].id, v: i < 9 ? kunci2[q2[i].id] : ({ a: 'b', b: 'c', c: 'd', d: 'a' })[kunci2[q2[i].id]] });
+  await api(SE, 'bl_selesai', { segId: pre2.id }); await api(A, 'bl_seg_state', { id: pre2.id, v: 'tutup' });
+  await api(A, 'bl_seg_state', { id: post2.id, v: 'buka' });
+  for (const q of q2) await api(SE, 'bl_jawab', { segId: post2.id, soalId: q.id, v: kunci2[q.id] });
+  await api(SE, 'bl_selesai', { segId: post2.id });
+  const rr = (await api(A, 'bl_get', { id: k2 })).r.scores.rows[0];
+  ok(rr.pre === 75 && rr.post === 100, '12 soal: 9 benar = 75, semua benar = 100');
+  ok((await api(A, 'bl_get', { id: +kid })).r.scores.rows.find(r => r.name === 'Ani Lestari, A.Md.AK').post === 88, 'Kegiatan lama (25 soal) tidak berubah: Ani tetap 88');
 
   // watermark
   const wm = 'Si PANDU © 2026 Adi Darma Aprianda, S.Tr.Kes, M.H.';

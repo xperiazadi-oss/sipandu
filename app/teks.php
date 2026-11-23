@@ -328,7 +328,7 @@ return [
        
        
         // soal
-        'soal_ket' => 'Pretest berisi 25 soal pilihan ganda (A–D). Post test memakai soal yang sama dengan urutan diacak sistem untuk tiap peserta. Tersimpan: {n} dari 25 soal.',
+        'soal_ket' => 'Pretest berisi 10–25 soal pilihan ganda (A–D). Post test memakai soal yang sama dengan urutan diacak sistem untuk tiap peserta. Nilai = jumlah benar ÷ jumlah soal × 100. Tersimpan: {n} soal.',
         'soal_terkunci' => 'Soal terkunci karena Pretest atau Post test sudah dibuka.', 'soal_baru' => 'Soal baru', 'ubah_soal' => 'Ubah soal nomor {n}', 'pertanyaan' => 'Pertanyaan', 'pilihan' => 'Pilihan {x}', 'kunci' => 'Kunci jawaban',
         'ubah' => 'Ubah', 'konfirm_hapus_soal' => 'Hapus soal ini?',
         // materi
@@ -385,7 +385,7 @@ return [
             'tidak_ada' => 'Kegiatan tidak ditemukan.', 'arsip' => 'Kegiatan sudah diarsipkan.', 'belum_terbit' => 'Kegiatan belum diterbitkan.', 'isi_judul' => 'Nama kegiatan wajib diisi.',
             'sudah_ada_pendaftar' => 'Sudah ada pendaftar; kegiatan tidak dapat dikembalikan ke draf.', 'jam' => 'Format jam harus JJ:MM.', 'urutan' => 'Urutan segmen tidak sesuai (Pretest → Materi → … → Post test → Penutup).',
             'hapus_segmen' => 'Hanya segmen Materi/Praktik yang belum dibuka yang dapat dihapus, dan minimal harus ada satu Materi.', 'status_segmen' => 'Status segmen tidak dapat diubah dengan cara ini.',
-            'soal_kurang' => 'Soal belum lengkap: Pretest dan Post test membutuhkan tepat 25 soal.', 'sudah_diverifikasi' => 'Pendaftaran ini sudah diverifikasi.', 'isi_pesan' => 'Pesan untuk peserta wajib diisi.',
+            'soal_kurang' => 'Soal belum lengkap: Pretest dan Post test membutuhkan 10–25 soal.', 'sudah_diverifikasi' => 'Pendaftaran ini sudah diverifikasi.', 'isi_pesan' => 'Pesan untuk peserta wajib diisi.',
             'pendaftaran_tutup' => 'Pendaftaran kegiatan ini sedang ditutup.', 'lengkapi_data' => 'Nama lengkap & gelar, jabatan/profesi, NIP/kode pegawai, instansi, email, dan No. HP wajib diisi.',
             'sudah_terdaftar' => 'Anda sudah terdaftar pada kegiatan ini.', 'tidak_bisa_kirim_ulang' => 'Kirim ulang hanya untuk pendaftaran yang diminta melengkapi.',
             'surat_besar' => 'Surat tugas maksimal 1 MB.', 'materi_besar' => 'Berkas materi maksimal 10 MB.', 'bukan_pdf' => 'Berkas harus berformat PDF.',
