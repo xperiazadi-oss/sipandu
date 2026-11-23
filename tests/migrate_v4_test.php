@@ -30,7 +30,7 @@ $fail = 0; $n = 0;
 $ok = function (bool $c, string $m) use (&$fail, &$n) { $n++; if (!$c) $fail++; echo ($c ? 'ok   ' : 'GAGAL ') . $m . "\n"; };
 sp_ensure_schema();
 sp_ensure_schema();
-$ok((int)setting('schema_v') === 5, 'versi skema 4 → 5');
+$ok((int)setting('schema_v') === SP_SCHEMA_VERSION, 'versi skema 4 → terbaru');
 $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
 $ok(!array_diff(sp_required_tables(), $tables), 'semua tabel ada (termasuk bl_users, bl_audit)');
 $ok((int)qval('SELECT COUNT(*) FROM bl_keg') === 0 && (int)qval('SELECT COUNT(*) FROM bl_peserta') === 0, 'data pembelajaran lama dihapus (mulai kosong)');

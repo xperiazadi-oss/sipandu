@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.3.1';
+const SIPANDU_VERSION = '1.4.0';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array

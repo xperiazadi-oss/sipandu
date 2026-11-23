@@ -11,7 +11,7 @@ if (empty($cfg['selftest_token']) || !hash_equals((string)$cfg['selftest_token']
 $rows = [];
 $add = function (string $label, bool $ok, string $detail = '') use (&$rows) { $rows[] = [$label, $ok, $detail]; };
 $add('PHP ' . PHP_VERSION, version_compare(PHP_VERSION, SIPANDU_MIN_PHP, '>='), 'minimal ' . SIPANDU_MIN_PHP);
-foreach (['pdo', 'pdo_mysql', 'gd', 'mbstring', 'json', 'session', 'openssl'] as $e) $add('ekstensi ' . $e, extension_loaded($e));
+foreach (['pdo', 'pdo_mysql', 'gd', 'mbstring', 'json', 'session', 'openssl', 'zip', 'dom', 'iconv'] as $e) $add('ekstensi ' . $e, extension_loaded($e));
 $add('HTTPS', sp_https());
 $add('ekstensi exif (orientasi foto ponsel)', true, extension_loaded('exif') ? 'ada' : 'tidak ada – foto tetap diterima tanpa koreksi orientasi');
 $dd = rtrim($cfg['data_dir'], '/');

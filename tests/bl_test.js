@@ -134,7 +134,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
 
   // ---- Fasilitator & Pembina menyusun isi
   const FA = await newPage(); await firstLogin(FA, 'fasil1', pwF1, 'Fasilitator1Baru');
-  ok((await FA.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-profil', 'Menu Fasilitator: Kegiatan, Profil narasumber');
+  ok((await FA.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-profil,#bl-laporan', 'Menu Fasilitator: Kegiatan, Profil narasumber, Laporan Kegiatan');
   const FB = await newPage(); await firstLogin(FB, 'fasil2', uF2.password, 'Fasilitator2Baru');
   ok((await FB.evaluate(() => Core.S.bl.length)) === 0 && !(await api(FB, 'bl_get', { id: +kid })).ok, 'Fasilitator yang tidak ditugaskan tidak melihat kegiatan');
   await go(FA, 'bl-profil'); await FA.waitForTimeout(400); await FA.fill('#bpJ', 'Ahli Teknologi Laboratorium Medik'); await FA.fill('#bpI', 'Labkesda Balikpapan'); await click(FA, '[data-act=blProfilSave]');
@@ -273,6 +273,37 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   // rekap
   await A.reload(); await A.waitForTimeout(400); await click(A, '[data-act=blTab][data-v=rekap]');
   ok(/82,4/.test(await txt(A)) && /Penilaian peserta terhadap narasumber/.test(await txt(A)), 'Rekap Admin: nilai & penilaian narasumber');
+
+  // ---- Laporan Kegiatan (Fasilitator)
+  await go(FA, 'bl-laporan'); await FA.waitForTimeout(500);
+  ok(/Laporan Kegiatan/.test(await txt(FA)) && /Pelatihan QC Westgard 2026/.test(await txt(FA)), 'Laporan Kegiatan: daftar kegiatan yang ditugaskan');
+  ok((await FA.evaluate(() => document.querySelector('.nav a.on').getAttribute('href'))) === '#bl-laporan', 'Menu Laporan Kegiatan aktif');
+  await go(FA, 'bl-laporan-' + kid); await FA.waitForTimeout(600);
+  const mek = await FA.inputValue('[data-lap=mekanisme]');
+  ok(/^Kegiatan ini dikelola menggunakan Si PANDU/.test(mek) && /1\. Pretest/.test(mek) && /Aturan Westgard \(08\.00–10\.00\)/.test(mek) && /narasumber\/PIC: Dr\. Rina Fasilitator/.test(mek), 'Mekanisme: diawali pengenalan Si PANDU, rundown dari jadwal (segmen, sesi, PIC)');
+  const lt = await txt(FA);
+  ok(/Setelah dilaksanakan kegiatan sebagaimana dijelaskan dalam mekanisme di atas, maka didapatkan hasil:/.test(lt) && /diikuti oleh 2 peserta dari 2 instansi/.test(lt) && /Puskesmas Baru Ilir: 1 peserta/.test(lt), 'Hasil 1: jumlah & variasi peserta');
+  ok(/Skor akhir \(Skor Peserta Terbaik\)/.test(lt) && /82,4/.test(lt) && /67,6/.test(lt), 'Hasil 2: statistik penilaian (rata-rata skor akhir 67,6)');
+  ok(/termasuk kategori Cukup/.test(lt) && /Baik 1 orang, Cukup 0 orang, dan Kurang 1 orang/.test(lt), 'Hasil 3: rata-rata akhir secara kualitatif');
+  await FA.setInputFiles('#blTor', 'tests/data/tor_contoh.docx'); await FA.waitForTimeout(900);
+  ok(/^Pemantapan mutu internal/.test(await FA.inputValue('[data-lap=pendahuluan]')) && /TOR sudah diunggah/.test(await txt(FA)), 'Pendahuluan diambil otomatis dari TOR (.docx)');
+  await FA.setInputFiles('#blTor', F.surat); await FA.waitForTimeout(700); ok(/\.docx/.test(await toasts(FA)), 'TOR selain .docx ditolak');
+  await FA.fill('[data-lap=kendala]', '1. Jaringan internet sempat terputus.\n2. Dua peserta terlambat.'); await FA.press('[data-lap=kendala]', 'Tab'); await FA.waitForTimeout(400);
+  await FA.fill('[data-lap=kesimpulan]', 'Kegiatan berjalan baik.'); await FA.press('[data-lap=kesimpulan]', 'Tab'); await FA.waitForTimeout(400);
+  await FA.fill('[data-lap=rekomendasi]', 'Perlu pelatihan lanjutan.'); await FA.press('[data-lap=rekomendasi]', 'Tab'); await FA.waitForTimeout(400);
+  await FA.selectOption('[data-lap=pembinaId]', String(pemb)); await FA.waitForTimeout(500);
+  await FA.reload(); await FA.waitForTimeout(700);
+  ok((await FA.inputValue('[data-lap=kendala]')).startsWith('1. Jaringan') && (await FA.inputValue('[data-lap=pembinaId]')) === String(pemb), 'Isian manual & Pembina tersimpan');
+  const dl = (p, f) => p.evaluate(([k, f]) => fetch('berkas.php?j=lap&f=' + f + '&id=' + k).then(async r => ({ s: r.status, t: r.headers.get('content-type') || '', b: new Uint8Array(await r.arrayBuffer()) })).then(x => ({ s: x.s, t: x.t, n: x.b.length, h: String.fromCharCode.apply(null, x.b.slice(0, 5)) })), [kid, f]);
+  const pdfR = await dl(FA, 'pdf'), docR = await dl(FA, 'docx');
+  ok(pdfR.s === 200 && pdfR.h === '%PDF-' && pdfR.n > 3000, 'Unduh PDF');
+  ok(docR.s === 200 && docR.h.startsWith('PK') && /wordprocessingml/.test(docR.t), 'Unduh Word (.docx)');
+  ok((await dl(A, 'pdf')).s === 404 && (await dl(P, 'pdf')).s === 404 && (await dl(W, 'pdf')).s === 404 && (await dl(FB, 'pdf')).s === 404, 'Laporan hanya untuk Fasilitator yang ditugaskan');
+  ok(!(await api(A, 'bl_lap_get', { kegId: +kid })).ok && !(await api(P, 'bl_lap_list', {})).ok, 'Admin & Pembina tidak dapat membuka Laporan Kegiatan');
+  const pdfBin = await FA.evaluate(k => fetch('berkas.php?j=lap&f=pdf&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
+  fs.writeFileSync('/tmp/laporan_uji.pdf', Buffer.from(pdfBin));
+  const docBin = await FA.evaluate(k => fetch('berkas.php?j=lap&f=docx&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
+  fs.writeFileSync('/tmp/laporan_uji.docx', Buffer.from(docBin));
 
   // ---- Admin: kelola akun
   await go(A, 'bl-pengguna'); await A.waitForTimeout(300);

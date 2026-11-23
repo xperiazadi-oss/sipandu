@@ -21,15 +21,16 @@ var App = (function () {
   var MENU = {
     admin: [['bl', 'blapp.menu_kegiatan'], ['bl-pengguna', 'blapp.menu_pengguna']],
     pembina: [['bl', 'blapp.menu_kegiatan'], ['bl-profil', 'menu.bl_profil']],
-    fasil: [['bl', 'blapp.menu_kegiatan'], ['bl-profil', 'menu.bl_profil']],
+    fasil: [['bl', 'blapp.menu_kegiatan'], ['bl-profil', 'menu.bl_profil'], ['bl-laporan', 'blapp.menu_laporan']],
     pengawas: [['bl', 'blapp.menu_kegiatan']],
     peserta: [['bl', 'blapp.menu_kegiatan'], ['bl-riwayat', 'blapp.menu_riwayat']]
   };
   function layout(body, cur) {
     var u = C.me();
-    var sub = ['bl-pengguna', 'bl-profil', 'bl-riwayat'];
+    var sub = ['bl-pengguna', 'bl-profil', 'bl-riwayat', 'bl-laporan'];
+    var inSub = function (r) { return sub.some(function (x) { return r === x || r.indexOf(x + '-') === 0; }); };
     var nav = (MENU[u.role] || []).map(function (m) {
-      var on = m[0] === 'bl' ? (cur === 'bl' || (cur.indexOf('bl-') === 0 && sub.indexOf(cur) < 0)) : cur === m[0];
+      var on = m[0] === 'bl' ? (cur === 'bl' || (cur.indexOf('bl-') === 0 && !inSub(cur))) : (cur === m[0] || cur.indexOf(m[0] + '-') === 0);
       var badge = m[0] === 'bl' && u.role === 'admin' ? (C.S.bl || []).reduce(function (a, k) { return a + (k.nWaiting || 0); }, 0) : 0;
       return '<a href="#' + m[0] + '" class="' + (on ? 'on' : '') + '">' + esc(t(m[1])) + (badge ? ' <i class="nbadge">' + badge + '</i>' : '') + '</a>';
     }).join('');

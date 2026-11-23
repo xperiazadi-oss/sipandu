@@ -610,6 +610,56 @@ function bl_api(string $a, array $d, array $u)
             need($role === 'peserta');
             return bl_riwayat($u);
 
+        /* --- Fasilitator: Laporan Kegiatan --- */
+        case 'bl_lap_list':
+            need($role === 'fasil');
+            return array_values(array_map(function ($k) use ($u) {
+                $r = q1('SELECT updated_at FROM bl_laporan WHERE keg_id = ? AND user_id = ?', [$k['id'], $u['id']]);
+                return ['id' => (int)$k['id'], 'title' => $k['judul'], 'start' => (string)$k['tgl_mulai'], 'end' => (string)$k['tgl_selesai'], 'status' => $k['status'], 'updated' => $r['updated_at'] ?? null];
+            }, array_filter(qall('SELECT * FROM bl_keg ORDER BY id DESC'), fn($k) => bl_lap_can($u, $k))));
+        case 'bl_lap_get':
+        case 'bl_lap_save':
+        case 'bl_lap_mek':
+        case 'bl_lap_tor':
+            $k = $kegOf(int_in($d, 'kegId'));
+            need(bl_lap_can($u, $k));
+            $r = bl_lap_row($u, $k);
+            if ($a === 'bl_lap_save') {
+                $map = ['pelaksana' => ['pelaksana', 200], 'pendahuluan' => ['pendahuluan', 20000], 'mekanisme' => ['mekanisme', 20000], 'kendala' => ['kendala', 20000], 'kesimpulan' => ['kesimpulan', 20000],
+                    'rekomendasi' => ['rekomendasi', 20000], 'ttdTempat' => ['ttd_tempat', 100], 'ttdTanggal' => ['ttd_tanggal', 10], 'pembinaId' => ['pembina_id', 0]];
+                $kk = (string)($d['k'] ?? '');
+                need(isset($map[$kk]), 'galat.data_tidak_valid', 400);
+                [$col, $max] = $map[$kk];
+                if ($kk === 'pembinaId') {
+                    $v = (int)($d['v'] ?? 0) ?: null;
+                    need($v === null || qval("SELECT role FROM bl_users WHERE id = ?", [$v]) === 'pembina', 'galat.data_tidak_valid', 400);
+                } elseif ($kk === 'ttdTanggal') {
+                    $v = trim((string)($d['v'] ?? ''));
+                    need($v === '' || (bool)DateTimeImmutable::createFromFormat('Y-m-d', $v), 'galat.data_tidak_valid', 400);
+                } else {
+                    $v = trim(str_replace("\r\n", "\n", (string)($d['v'] ?? '')));
+                    need(mb_strlen($v) <= $max, 'lap.galat.terlalu_panjang', 400);
+                }
+                q("UPDATE bl_laporan SET $col = ?, updated_at = ? WHERE id = ?", [$v, now_str(), $r['id']]);
+            } elseif ($a === 'bl_lap_mek') {
+                q('UPDATE bl_laporan SET mekanisme = ?, updated_at = ? WHERE id = ?', [bl_lap_mekanisme_auto($k), now_str(), $r['id']]);
+            } elseif ($a === 'bl_lap_tor') {
+                need(isset($_FILES['tor']) && is_uploaded_file($_FILES['tor']['tmp_name']), 'galat.unggah', 400);
+                need($_FILES['tor']['size'] <= BL_TOR_MAX, 'lap.galat.tor_besar', 400);
+                $tmp = $_FILES['tor']['tmp_name'];
+                $zip = new ZipArchive();
+                $okDocx = $zip->open($tmp) === true && $zip->locateName('word/document.xml') !== false;
+                if ($okDocx) $zip->close();
+                need($okDocx, 'lap.galat.bukan_docx', 400);
+                $file = 'tor_' . date('YmdHis') . '_' . bin2hex(random_bytes(6)) . '.docx';
+                copy($tmp, data_dir('tor') . '/' . $file);
+                $txt = bl_tor_pendahuluan(data_dir('tor') . '/' . $file);
+                q('UPDATE bl_laporan SET tor = ?, updated_at = ?' . ($txt !== '' ? ', pendahuluan = ?' : '') . ' WHERE id = ?', $txt !== '' ? [$file, now_str(), $txt, $r['id']] : [$file, now_str(), $r['id']]);
+                audit('bl_lap_tor', ['keg' => $k['id'], 'found' => $txt !== '']);
+                return ['found' => $txt !== '', 'lap' => bl_lap_data($u, $k)];
+            }
+            return bl_lap_data($u, $k);
+
         /* --- Admin: akun subdomain --- */
         case 'bl_user_add':
             need($isA);
