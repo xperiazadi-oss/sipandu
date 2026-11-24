@@ -65,7 +65,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await login(X, 'pkm01', 'Puskesmas01Baru'); ok(/salah/.test(await txt(X)), 'Akun Binaan Si PANDU tidak berlaku di subdomain');
   const A = await newPage(); await login(A, 'admin', 'BelajarAdmin2026');
   ok(/Si PANDU – Peningkatan Kapasitas Kompetensi SDM/.test(await txt(A)), 'Judul situs: "Si PANDU – Peningkatan Kapasitas Kompetensi SDM"');
-  ok((await A.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-pengguna', 'Menu Admin subdomain: Kegiatan, Pengguna');
+  ok((await A.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-pengguna,#bl-audit', 'Menu Admin subdomain: Kegiatan, Pengguna, Audit trail');
   ok((await status(A, BL + '/kop.php?k=pembina')) === 404 && (await status(A, BL + '/foto.php?f=1')) === 404, 'Admin subdomain tidak dapat membuka berkas Si PANDU');
   const mainSess = await SA.evaluate(() => Core.api('state').then(() => Core.me().username)); ok(mainSess === 'admin', 'Sesi Si PANDU tidak terganggu sesi subdomain');
 
@@ -341,6 +341,48 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   const rr = (await api(A, 'bl_get', { id: k2 })).r.scores.rows[0];
   ok(rr.pre === 75 && rr.post === 100, '12 soal: 9 benar = 75, semua benar = 100');
   ok((await api(A, 'bl_get', { id: +kid })).r.scores.rows.find(r => r.name === 'Ani Lestari, A.Md.AK').post === 88, 'Kegiatan lama (25 soal) tidak berubah: Ani tetap 88');
+
+    const anyToast = p => p.evaluate(() => [...document.querySelectorAll('.toast')].map(x => x.textContent).join(' '));
+  const dbq = sql => require('child_process').execFileSync('php', ['-r', '$d=new PDO("sqlite:/tmp/sp/db.sqlite"); echo $d->query($argv[1])->fetchColumn();', sql]).toString().trim();
+  // ---- Admin: hapus peserta (alasan wajib, audit trail)
+  const aniId = await A.evaluate(() => Core.S.users.find(u => u.username === 'ani').id);
+  ok(/diarsipkan sehingga tidak dapat dihapus/.test((await api(A, 'bl_user_del', { id: aniId, alasan: 'Uji penghapusan akun arsip' })).e || ''), 'Akun yang tercatat di kegiatan arsip tidak dapat dihapus');
+  await go(A, 'bl-' + kid); await click(A, '[data-act=blTab][data-v=peserta]');
+  ok(await A.locator('[data-act=blPesDel]').count() === 0, 'Kegiatan arsip: tombol Hapus dari kegiatan tidak tampil');
+  const ekaPid = (await api(A, 'bl_get', { id: k2 })).r.peserta[0].id;
+  ok(/minimal 10 karakter/.test((await api(A, 'bl_pes_del', { id: ekaPid, alasan: 'singkat' })).e || ''), 'Alasan kurang dari 10 karakter ditolak');
+  ok(!(await api(P, 'bl_pes_del', { id: ekaPid, alasan: 'Bukan admin mencoba hapus' })).ok && !(await api(P, 'bl_audit_list', {})).ok, 'Selain Admin tidak dapat menghapus peserta / membuka audit');
+  await go(A, 'bl-' + k2); await click(A, '[data-act=blTab][data-v=peserta]');
+  await click(A, `[data-act=blPesDel][data-id="${ekaPid}"]`);
+  ok(/akan dihapus permanen/.test(await A.evaluate(() => document.querySelector('.modal').innerText)) && await A.isDisabled('#delOK'), 'Modal hapus: keterangan tampil, tombol nonaktif sebelum alasan diisi');
+  await A.fill('#delWhy', 'abc'); ok(await A.isDisabled('#delOK'), 'Alasan 3 karakter: tombol tetap nonaktif');
+  await A.fill('#delWhy', 'Peserta salah memilih kegiatan'); ok(!(await A.isDisabled('#delOK')), 'Alasan cukup: tombol aktif');
+  await click(A, '#delOK'); await A.waitForTimeout(300);
+  let d3 = (await api(A, 'bl_get', { id: k2 })).r;
+  ok(/Peserta sudah dihapus dari kegiatan/.test(await anyToast(A)) && d3.peserta.length === 0 && d3.keg.terisi === 0, 'Peserta terhapus dari kegiatan; kuota kembali kosong');
+  ok(dbq(`SELECT (SELECT COUNT(*) FROM bl_jawab WHERE peserta_id=${ekaPid})+(SELECT COUNT(*) FROM bl_selesai WHERE peserta_id=${ekaPid})+(SELECT COUNT(*) FROM bl_nilai WHERE peserta_id=${ekaPid})+(SELECT COUNT(*) FROM bl_eval WHERE peserta_id=${ekaPid})`) === '0', 'Jawaban, penyelesaian, nilai, evaluasi peserta di kegiatan itu ikut terhapus');
+  ok((await api(SE, 'bl_riwayat', {})).ok && !(await api(SE, 'bl_riwayat', {})).r.some(x => x.kegId === k2), 'Akun peserta tetap ada; kegiatan hilang dari Riwayat saya');
+  ok((await reg(SE, { kegId: k2, name: 'Eka', jabatan: 'ATLM', nip: '1', instansi: 'Puskesmas Damai', email: 'eka@contoh.id', hp: '081300000002' })) === 'ok', 'Peserta dapat mendaftar ulang setelah dihapus dari kegiatan');
+  const suratAda = () => fs.readdirSync('/tmp/sp/data/surat').length;
+  const nSurat = suratAda();
+  const ekaId = await A.evaluate(() => Core.S.users.find(u => u.username === 'eka').id);
+  await go(A, 'bl-pengguna'); await A.waitForTimeout(300);
+  ok(await A.locator('[data-act=blUserDel]').count() === (await A.evaluate(() => Core.S.users.filter(u => u.role === 'peserta').length)), 'Tombol Hapus akun hanya pada akun Peserta');
+  ok(!(await api(A, 'bl_user_del', { id: await A.evaluate(() => Core.S.users.find(u => u.role === 'pembina').id), alasan: 'Mencoba hapus akun pembina' })).ok, 'Akun selain Peserta tidak dapat dihapus');
+  await click(A, `[data-act=blUserDel][data-id="${ekaId}"]`);
+  ok(/semua kegiatan/.test(await A.evaluate(() => document.querySelector('.modal').innerText)), 'Modal hapus akun tampil');
+  await A.fill('#delWhy', 'Akun ganda, peserta memakai akun lain'); await click(A, '#delOK'); await A.waitForTimeout(300);
+  ok(/Akun peserta sudah dihapus/.test(await anyToast(A)) && !(await A.evaluate(() => Core.S.users.some(u => u.username === 'eka'))), 'Akun peserta terhapus dari daftar pengguna');
+  ok((await api(A, 'bl_get', { id: k2 })).r.peserta.length === 0 && suratAda() === nSurat - 1, 'Pendaftaran & surat PDF ikut terhapus');
+  ok(dbq(`SELECT COUNT(*) FROM bl_users WHERE id=${ekaId}`) === '0' && dbq(`SELECT COUNT(*) FROM bl_audit WHERE action='bl_hapus_akun'`) === '1', 'Baris akun terhapus dari basis data; audit tercatat');
+  ok(/sesi/i.test((await api(SE, 'bl_riwayat', {})).e || ''), 'Sesi akun yang dihapus berakhir');
+  const X3 = await newPage(); await login(X3, 'eka', 'PesertaEka123'); ok(/salah/.test(await txt(X3)), 'Akun yang dihapus tidak bisa masuk');
+  await go(A, 'bl-audit'); await A.waitForTimeout(500);
+  const au = await A.evaluate(() => document.querySelector('.content').innerText);
+  ok(/Audit trail/.test(au) && /Akun ganda, peserta memakai akun lain/.test(au) && /Peserta salah memilih kegiatan/.test(au) && /Hapus akun/.test(au) && /Hapus dari kegiatan/.test(au) && /eka@contoh\.id/.test(au) && /Kegiatan 12 soal/.test(au), 'Audit trail menampilkan tindakan, peserta, kegiatan, alasan');
+  ok((await A.evaluate(() => document.querySelector('.nav a.on').getAttribute('href'))) === '#bl-audit', 'Menu Audit trail aktif');
+  const al = (await api(A, 'bl_audit_list', {})).r;
+  ok(al.length === 2 && al[0].jenis === 'akun' && al[0].oleh && al[1].keg[0].status === 'diterima', 'Catatan audit lengkap (urut terbaru, admin, status pendaftaran)');
 
   // watermark
   const wm = 'Si PANDU © 2026 Adi Darma Aprianda, S.Tr.Kes, M.H.';

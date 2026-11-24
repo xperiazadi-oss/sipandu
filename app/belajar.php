@@ -400,6 +400,43 @@ function bl_fasil_cleanup(): void
     foreach (array_keys($assigned) as $id) if (!isset($active[$id])) q("UPDATE bl_users SET aktif = 0 WHERE id = ? AND role = 'fasil'", [$id]);
 }
 
+/* ---------- hapus peserta (Admin) ---------- */
+const BL_ALASAN_MIN = 10;
+/** Hapus baris pendaftaran beserta jawaban, penyelesaian, nilai, dan evaluasinya; berkas surat dikembalikan untuk dihapus setelah commit */
+function bl_hapus_pendaftaran(array $rows): array
+{
+    $files = [];
+    foreach ($rows as $p) {
+        foreach (['bl_jawab', 'bl_selesai', 'bl_nilai', 'bl_eval'] as $tb) q("DELETE FROM $tb WHERE peserta_id = ?", [$p['id']]);
+        q('DELETE FROM bl_peserta WHERE id = ?', [$p['id']]);
+        if ($p['surat']) $files[] = data_dir('surat') . '/' . basename($p['surat']);
+    }
+    return $files;
+}
+/** Salinan identitas peserta untuk audit trail */
+function bl_hapus_identitas(array $u, ?array $p = null): array
+{
+    return ['nama' => (string)($p['nama'] ?? $u['nama']), 'username' => (string)$u['username'], 'instansi' => (string)($p['instansi'] ?? $u['instansi']), 'email' => (string)($p['email'] ?? $u['email']), 'hp' => (string)($p['hp'] ?? $u['hp'])];
+}
+/** Jalankan penghapusan dalam satu transaksi; berkas dihapus setelah commit */
+function bl_hapus_tx(callable $fn): void
+{
+    sp_db()->beginTransaction();
+    try { $files = $fn(); sp_db()->commit(); } catch (Throwable $e) { if (sp_db()->inTransaction()) sp_db()->rollBack(); throw $e; }
+    foreach ($files as $f) @unlink($f);
+}
+/** Catatan penghapusan peserta (menu Audit trail) */
+function bl_audit_hapus(): array
+{
+    $out = [];
+    foreach (qall("SELECT * FROM bl_audit WHERE action IN ('bl_hapus_akun', 'bl_hapus_peserta') ORDER BY id DESC LIMIT 1000") as $r) {
+        $x = (array)jdec($r['detail']);
+        $out[] = ['at' => $r['at'], 'jenis' => $r['action'] === 'bl_hapus_akun' ? 'akun' : 'kegiatan', 'oleh' => (string)($x['oleh'] ?? ''), 'ip' => (string)$r['ip'],
+            'peserta' => (array)($x['peserta'] ?? []), 'keg' => array_values((array)($x['keg'] ?? [])), 'alasan' => (string)($x['alasan'] ?? '')];
+    }
+    return $out;
+}
+
 /* ---------- aksi API (semua diawali bl_) ---------- */
 function bl_api(string $a, array $d, array $u)
 {
@@ -575,6 +612,24 @@ function bl_api(string $a, array $d, array $u)
             audit('bl_verif', ['peserta' => $p['id'], 'v' => $v]);
             return $res;
 
+        /* --- Admin: hapus peserta dari satu kegiatan (akun tetap) --- */
+        case 'bl_pes_del':
+            need($isA);
+            $p = q1('SELECT * FROM bl_peserta WHERE id = ?', [int_in($d, 'id')]);
+            need((bool)$p, 'bl.galat.tidak_ada', 404);
+            $k = $kegOf((int)$p['keg_id']); $notArsip($k);
+            $why = str_in($d, 'alasan', 1000);
+            need(mb_strlen($why) >= BL_ALASAN_MIN, 'bl.galat.alasan_hapus', 400);
+            $pu = q1('SELECT * FROM bl_users WHERE id = ?', [$p['user_id']]) ?: ['nama' => $p['nama'], 'username' => '', 'instansi' => '', 'email' => '', 'hp' => ''];
+            // penghapusan dan catatan audit berada dalam satu transaksi: tidak ada penghapusan tanpa jejak
+            bl_hapus_tx(function () use ($p, $pu, $k, $u, $why) {
+                $files = bl_hapus_pendaftaran([$p]);
+                audit('bl_hapus_peserta', ['oleh' => $u['nama'], 'peserta' => bl_hapus_identitas($pu, $p), 'user_id' => (int)$p['user_id'],
+                    'keg' => [['id' => (int)$k['id'], 'judul' => $k['judul'], 'status' => $p['status']]], 'alasan' => $why]);
+                return $files;
+            });
+            return null;
+
         /* --- Peserta: mendaftarkan diri pada kegiatan --- */
         case 'bl_daftar':
         case 'bl_kirim_ulang':
@@ -703,6 +758,30 @@ function bl_api(string $a, array $d, array $u)
             q('UPDATE bl_users SET pass_hash = ?, must_change = 1 WHERE id = ?', [password_hash($pw, PASSWORD_DEFAULT), $t['id']]);
             audit('bl_user_reset', ['id' => $t['id']]);
             return ['username' => $t['username'], 'password' => $pw];
+
+        /* --- Admin: hapus akun peserta beserta seluruh datanya --- */
+        case 'bl_user_del':
+            need($isA);
+            $t = q1('SELECT * FROM bl_users WHERE id = ?', [int_in($d, 'id')]);
+            need($t && $t['role'] === 'peserta', 'galat.data_tidak_valid', 400);
+            $why = str_in($d, 'alasan', 1000);
+            need(mb_strlen($why) >= BL_ALASAN_MIN, 'bl.galat.alasan_hapus', 400);
+            $rows = qall('SELECT p.*, k.judul AS keg_judul, k.status AS keg_status FROM bl_peserta p JOIN bl_keg k ON k.id = p.keg_id WHERE p.user_id = ? ORDER BY p.id', [$t['id']]);
+            foreach ($rows as $p) need($p['keg_status'] !== 'arsip', 'bl.galat.akun_arsip', 400);
+            bl_hapus_tx(function () use ($rows, $t, $u, $why) {
+                $files = bl_hapus_pendaftaran($rows);
+                $pr = q1('SELECT foto FROM bl_profil WHERE user_id = ?', [$t['id']]);
+                if ($pr && $pr['foto']) $files[] = data_dir('profil') . '/' . basename($pr['foto']);
+                q('DELETE FROM bl_profil WHERE user_id = ?', [$t['id']]);
+                q('DELETE FROM bl_users WHERE id = ?', [$t['id']]);
+                audit('bl_hapus_akun', ['oleh' => $u['nama'], 'peserta' => bl_hapus_identitas($t), 'user_id' => (int)$t['id'],
+                    'keg' => array_map(fn($p) => ['id' => (int)$p['keg_id'], 'judul' => $p['keg_judul'], 'status' => $p['status']], $rows), 'alasan' => $why]);
+                return $files;
+            });
+            return null;
+        case 'bl_audit_list':
+            need($isA);
+            return bl_audit_hapus();
 
         /* --- Pembina/Fasilitator: soal, materi, aspek, nilai, profil --- */
         case 'bl_soal_save':

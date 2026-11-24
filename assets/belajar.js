@@ -42,6 +42,7 @@
     if (arg === 'profil') return profilPage();
     if (arg === 'pengguna') return penggunaPage();
     if (arg === 'riwayat') return riwayatPage();
+    if (arg === 'audit') return auditPage();
     if (arg === 'laporan' || /^laporan-\d+$/.test(arg)) return lapPage(arg);
     var p = arg.split('-'), id = p[0];
     if (!/^\d+$/.test(id)) return H.denied();
@@ -159,7 +160,8 @@
     ps = ps.slice().sort(function (a, b) { return order[a.status] - order[b.status]; });
     return '<p class="small muted">' + esc(t('bl.verif_ket')) + '</p><p class="small"><b>' + esc(t('bl.kuota_info', { terisi: d.keg.terisi, kuota: d.keg.kuota })) + '</b></p><div class="tbl"><table><tr><th>' + esc(t('bl.instansi')) + '</th><th>' + esc(t('bl.nama_gelar')) + '</th><th>' + esc(t('bl.jabatan')) + '</th><th>' + esc(t('bl.nip')) + '</th><th>' + esc(t('bl.kontak')) + '</th><th>' + esc(t('bl.surat_tugas')) + '</th><th>' + esc(t('bl.dikirim')) + '</th><th>' + esc(t('bl.status')) + '</th><th></th></tr>' + ps.map(function (p) {
       return '<tr><td>' + esc(p.instansi) + '</td><td><b>' + esc(p.name) + '</b>' + (p.username ? '<div class="small"><code>' + esc(p.username) + '</code></div>' : '') + '</td><td>' + esc(p.jabatan) + '</td><td>' + esc(p.nip) + '</td><td class="small">' + esc(p.email) + '<br>' + esc(p.hp) + '</td><td>' + (p.hasSurat ? '<a href="berkas.php?j=surat&id=' + p.id + '" target="_blank" rel="noopener">' + esc(t('bl.lihat_pdf')) + '</a>' : '–') + '</td><td class="small">' + dt(p.sentAt) + '</td><td>' + chipStatus('pes', p.status) + (p.msg ? '<div class="small muted" style="white-space:pre-line">' + esc(p.msg) + '</div>' : '') + '</td><td style="white-space:nowrap">' +
-        (p.status === 'menunggu' && d.keg.status !== 'arsip' ? '<button class="btn s" data-act="blVerif" data-id="' + p.id + '" data-v="diterima">' + esc(t('bl.terima')) + '</button> <button class="btn o s" data-act="blVerif" data-id="' + p.id + '" data-v="lengkapi">' + esc(t('bl.minta_lengkapi')) + '</button> <button class="btn d s" data-act="blVerif" data-id="' + p.id + '" data-v="ditolak">' + esc(t('bl.tolak')) + '</button>' : '') + '</td></tr>';
+        (p.status === 'menunggu' && d.keg.status !== 'arsip' ? '<button class="btn s" data-act="blVerif" data-id="' + p.id + '" data-v="diterima">' + esc(t('bl.terima')) + '</button> <button class="btn o s" data-act="blVerif" data-id="' + p.id + '" data-v="lengkapi">' + esc(t('bl.minta_lengkapi')) + '</button> <button class="btn d s" data-act="blVerif" data-id="' + p.id + '" data-v="ditolak">' + esc(t('bl.tolak')) + '</button>' : '') +
+        (me().role === 'admin' && d.keg.status !== 'arsip' ? '<div style="margin-top:6px"><button class="btn d s" data-act="blPesDel" data-id="' + p.id + '">' + esc(t('blapp.hapus_dari_keg')) + '</button></div>' : '') + '</td></tr>';
     }).join('') + '</table></div>';
   }
   function soalLocked(d) { return d.segs.some(function (s) { return (s.jenis === 'pretest' || s.jenis === 'posttest') && s.status !== 'belum'; }); }
@@ -337,9 +339,31 @@
     var h = '<h2>' + esc(t('blapp.menu_pengguna')) + '</h2><div class="card"><h3>' + esc(t('admin.tambah_akun')) + '</h3><div class="form"><label class="f">' + esc(t('admin.peran')) + '<select class="inp" id="buR">' + ['pembina', 'fasil', 'pengawas'].map(function (r) { return H.opt(r, t('peran.' + r)); }).join('') + '</select></label><label class="f">' + esc(t('admin.nama')) + '<input class="inp" id="buN"></label><label class="f">' + esc(t('admin.username')) + '<input class="inp" id="buU"></label><label class="f">' + esc(t('blapp.instansi')) + '<input class="inp" id="buI"></label><div><button class="btn" data-act="blUserAdd">' + esc(t('admin.tombol_tambah_akun')) + '</button></div></div><p class="small muted">' + esc(t('blapp.pengguna_ket')) + '</p></div>';
     return h + '<div class="tbl"><table><tr><th>' + esc(t('admin.peran')) + '</th><th>' + esc(t('admin.nama')) + '</th><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('blapp.instansi')) + '</th><th>' + esc(t('blapp.email')) + '</th><th>' + esc(t('blapp.hp')) + '</th><th>' + esc(t('blapp.masuk_terakhir')) + '</th><th>' + esc(t('blapp.aktif')) + '</th><th></th></tr>' + us.map(function (x) {
       var adm = x.role === 'admin', inp = function (k, v) { return '<td class="in"><input class="cell" data-bluser="' + x.id + '" data-k="' + k + '" value="' + esc(v) + '"></td>'; };
-      return '<tr><td>' + esc(t('peran.' + x.role)) + '</td>' + inp('nama', x.name) + inp('username', x.username) + inp('instansi', x.instansi) + inp('email', x.email) + inp('hp', x.hp) + '<td class="small">' + esc(x.lastLogin || '–') + '</td><td>' + (adm ? '' : '<input type="checkbox" data-act="blUserActive" data-id="' + x.id + '"' + (x.active ? ' checked' : '') + '>') + '</td><td>' + (adm ? '' : '<button class="btn o s" data-act="blUserReset" data-id="' + x.id + '">' + esc(t('admin.reset_sandi')) + '</button>') + '</td></tr>';
+      return '<tr><td>' + esc(t('peran.' + x.role)) + '</td>' + inp('nama', x.name) + inp('username', x.username) + inp('instansi', x.instansi) + inp('email', x.email) + inp('hp', x.hp) + '<td class="small">' + esc(x.lastLogin || '–') + '</td><td>' + (adm ? '' : '<input type="checkbox" data-act="blUserActive" data-id="' + x.id + '"' + (x.active ? ' checked' : '') + '>') + '</td><td>' + (adm ? '' : '<button class="btn o s" data-act="blUserReset" data-id="' + x.id + '">' + esc(t('admin.reset_sandi')) + '</button>') + (x.role === 'peserta' ? ' <button class="btn d s" data-act="blUserDel" data-id="' + x.id + '">' + esc(t('blapp.hapus_akun')) + '</button>' : '') + '</td></tr>';
     }).join('') + '</table></div>';
   }
+  /* ---------- Admin: hapus peserta & audit trail ---------- */
+  var ALASAN_MIN = 10;
+  function delModal(title, ket, who, fn) {
+    var m = H.modal('<h3>' + esc(title) + '</h3><p><b>' + esc(who) + '</b></p><div class="note bad">' + esc(ket) + '</div><label class="f">' + esc(t('blapp.alasan_hapus')) + '<textarea class="inp" rows="3" id="delWhy" maxlength="1000"></textarea></label><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn d" id="delOK" disabled>' + esc(t('blapp.hapus_permanen')) + '</button></div>');
+    var why = $('#delWhy', m), ok = $('#delOK', m);
+    why.oninput = function () { ok.disabled = why.value.trim().length < ALASAN_MIN; };
+    ok.onclick = function () { if (why.value.trim().length < ALASAN_MIN) return; m.remove(); fn(why.value.trim()); };
+    why.focus();
+  }
+  function auditPage() {
+    if (me().role !== 'admin') return H.denied();
+    var list = ui.blAudit;
+    if (!list) { C.api('bl_audit_list', {}).then(function (x) { ui.blAudit = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
+    var h = '<h2>' + esc(t('blapp.menu_audit')) + '</h2><p class="muted">' + esc(t('blapp.audit_ket')) + '</p>';
+    if (!list.length) return h + '<p class="muted">' + esc(t('blapp.audit_kosong')) + '</p>';
+    return h + '<div class="tbl"><table><tr><th>' + esc(t('blapp.kol_waktu')) + '</th><th>' + esc(t('blapp.kol_admin')) + '</th><th>' + esc(t('blapp.kol_tindakan')) + '</th><th>' + esc(t('blapp.kol_peserta')) + '</th><th>' + esc(t('blapp.kol_kegiatan')) + '</th><th>' + esc(t('blapp.kol_alasan')) + '</th></tr>' + list.map(function (x) {
+      var p = x.peserta || {};
+      return '<tr><td class="small" style="white-space:nowrap">' + esc(x.at) + '</td><td style="white-space:normal">' + esc(x.oleh) + '</td><td>' + esc(t('blapp.tindakan.' + x.jenis)) + '</td><td style="min-width:180px"><b>' + esc(p.nama || '') + '</b>' + (p.username ? '<div class="small"><code>' + esc(p.username) + '</code></div>' : '') +
+        '<div class="small muted" style="white-space:normal">' + esc([p.instansi, p.email, p.hp].filter(Boolean).join(' · ')) + '</div></td><td class="small" style="white-space:normal;min-width:160px">' + (x.keg.length ? x.keg.map(function (k) { return esc(k.judul) + ' (' + esc(t('bl.st_pes.' + k.status)) + ')'; }).join('<br>') : '–') + '</td><td class="small" style="white-space:pre-line;min-width:220px">' + esc(x.alasan) + '</td></tr>';
+    }).join('') + '</table></div>';
+  }
+
   function credModal(r) {
     H.modal('<h3>' + esc(t('admin.sandi_sementara')) + '</h3><p>' + esc(t('admin.sandi_sementara_ket')) + '</p><div class="tbl"><table><tr><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('admin.sandi')) + '</th></tr><tr><td><code>' + esc(r.username) + '</code></td><td><code>' + esc(r.password) + '</code></td></tr></table></div><div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn" data-close>' + esc(t('umum.tutup')) + '</button></div>');
   }
@@ -435,7 +459,7 @@
   }
 
   // data kegiatan dimuat ulang setiap pindah halaman agar status segmen selalu terbaru
-  window.addEventListener('hashchange', function () { cache = {}; ui.blRiwayat = null; ui.blProfil = null; ui.blLapList = null; ui.blLap = null; });
+  window.addEventListener('hashchange', function () { cache = {}; ui.blRiwayat = null; ui.blProfil = null; ui.blLapList = null; ui.blLap = null; ui.blAudit = null; });
   App.addActions({
     blKegAdd: function () { act('bl_keg_add', { title: $('#bkT').value, org: $('#bkO').value, kuota: $('#bkK').value }, t('bl.dibuat')).then(function (r) { H.go('bl-' + r.id); }); },
     blTab: function (el) { ui.blTab[kegId()] = el.dataset.v; ui.blEditSoal = null; App.render(); },
@@ -489,6 +513,14 @@
     blProfilSave: function () { C.api('bl_profil_save', { instansi: $('#bpI').value, jabatan: $('#bpJ').value, ringkasan: $('#bpR').value }).then(function (r) { ui.blProfil = null; H.toast(t('umum.tersimpan')); App.render(); }, function (e) { H.toast(e.message, true); }); },
     blUserAdd: function () { act('bl_user_add', { role: $('#buR').value, name: $('#buN').value, username: $('#buU').value, instansi: $('#buI').value }, t('umum.ditambahkan')).then(credModal); },
     blUserActive: function (el) { H.keepScroll(); act('bl_user_active', { id: +el.dataset.id, v: el.checked }, t('umum.tersimpan')); },
+    blUserDel: function (el) {
+      var u = (C.S.users || []).filter(function (x) { return x.id === +el.dataset.id; })[0]; if (!u) return;
+      delModal(t('blapp.hapus_akun_judul'), t('blapp.hapus_akun_ket'), u.name + ' (' + u.username + ')', function (why) { ui.blAudit = null; act('bl_user_del', { id: u.id, alasan: why }, t('blapp.akun_terhapus')); });
+    },
+    blPesDel: function (el) {
+      var d = cache[kegId()], p = d && (d.peserta || []).filter(function (x) { return String(x.id) === el.dataset.id; })[0]; if (!p) return;
+      delModal(t('blapp.hapus_keg_judul'), t('blapp.hapus_keg_ket'), p.name + (p.instansi ? ' – ' + p.instansi : ''), function (why) { ui.blAudit = null; act('bl_pes_del', { id: p.id, alasan: why }, t('blapp.peserta_terhapus')); });
+    },
     blUserReset: function (el) { confirmBox(t('admin.reset_sandi'), t('blapp.konfirm_reset'), t('admin.reset_sandi'), function () { act('bl_user_reset', { id: +el.dataset.id }).then(credModal); }); },
     blLapMek: function () { var id = lapId(); confirmBox(t('lap.susun_ulang'), t('lap.konfirm_susun_ulang'), t('lap.susun_ulang'), function () { C.api('bl_lap_mek', { kegId: +id }).then(function (x) { ui.blLap[id] = x; H.toast(t('umum.tersimpan')); App.render(); }, function (e) { H.toast(e.message, true); }); }); },
     blKosongkan: function () { ['#brN', '#brJ', '#brP', '#brI', '#brE', '#brH', '#brS'].forEach(function (x) { var e = $(x); if (e) e.value = ''; }); },

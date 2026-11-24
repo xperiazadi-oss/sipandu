@@ -26,6 +26,9 @@ Si PANDU – Peningkatan Kapasitas Kompetensi SDM memakai berkas yang sama: subd
 (document root = `public_html`), dan `sp_app()` memilih aplikasi menurut nama host. Akun (`bl_users`), sesi, dan log (`bl_audit`)
 terpisah dari Si PANDU. Logika di `app/belajar.php` dan `app/bl_web.php`; antarmuka `assets/bl-shell.js` + `assets/belajar.js`.
 Akun Admin subdomain dibuat lewat `install.php` di subdomain (token pemasangan). Alamat subdomain dapat diatur dengan `'bl_url'` di konfigurasi.
+Admin dapat menghapus akun Peserta (seluruh datanya) atau menghapus peserta dari satu kegiatan; alasan wajib (min. 10 karakter),
+penghapusan dan catatan `bl_audit` (`bl_hapus_akun` / `bl_hapus_peserta`) berada dalam satu transaksi, tampil di menu Audit trail.
+Peserta yang tercatat di kegiatan arsip tidak dapat dihapus.
 
 ## Konfigurasi (di luar repo dan di luar web root)
 `/home/<akun>/sipandu-config.php`:
