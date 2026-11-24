@@ -181,10 +181,10 @@ function bl_tor_pendahuluan(string $file): string
     return implode("\n", $buf);
 }
 
-/* ---------- kop: kop SiCinta (data/kop/kop_sicinta.png); bila belum ada, kop Pembina Si PANDU ---------- */
+/* ---------- kop: kop SiCinta (data/kop atau app/kop_sicinta.png); bila tidak ada, kop Pembina Si PANDU ---------- */
 function bl_lap_kop_jpeg(): ?array
 {
-    $cand = [data_dir('kop') . '/kop_sicinta.png', data_dir('kop') . '/kop_sicinta.jpg'];
+    $cand = [data_dir('kop') . '/kop_sicinta.png', data_dir('kop') . '/kop_sicinta.jpg', __DIR__ . '/kop_sicinta.png'];   // kop SiCinta terbaru ikut di repo (folder app/ tertutup dari web)
     $k = q1("SELECT file FROM kops WHERE owner_key = 'pembina'");
     if ($k) $cand[] = data_dir('kop') . '/' . basename($k['file']);
     foreach ($cand as $f) {
