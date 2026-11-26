@@ -11,7 +11,7 @@ return [
         'hak_cipta' => 'Si PANDU © 2026 Adi Darma Aprianda, S.Tr.Kes, M.H.',
     ],
     'bulan' => ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
-    'peran' => ['admin' => 'Administrator', 'pembina' => 'Pembina', 'binaan' => 'Binaan', 'fasil' => 'Fasilitator', 'pengawas' => 'Pengawas', 'peserta' => 'Peserta'],
+    'peran' => ['admin' => 'Administrator', 'pembina' => 'Pembina', 'binaan' => 'Laboratorium Binaan', 'fasil' => 'Fasilitator', 'pengawas' => 'Pengawas', 'peserta' => 'Peserta'],
     'sistem' => ['nama' => 'Sistem'],
     'umum' => [
         'masih_dikembangkan' => 'Masih dikembangkan',
@@ -49,7 +49,7 @@ return [
         'centang_tindakan' => 'Centang tindakan yang sudah dilakukan.', 'run_verifikasi' => 'Pilih run diterima setelah kasus untuk verifikasi.',
         'unggah' => 'Berkas belum dipilih.', 'unggah_besar' => 'Berkas terlalu besar.', 'bukan_gambar' => 'Berkas harus berupa gambar PNG.',
         'username_format' => 'Nama pengguna 3–40 karakter: huruf kecil, angka, titik, garis bawah, atau tanda hubung.', 'username_dipakai' => 'Nama pengguna sudah dipakai.',
-        'isi_nama' => 'Nama wajib diisi.', 'pilih_pkm' => 'Pilih Puskesmas.', 'k_tidak_valid' => 'Nilai k tidak valid.',
+        'isi_nama' => 'Nama wajib diisi.', 'pilih_pkm' => 'Pilih Puskesmas.', 'pin_format' => 'PIN harus 6 angka.', 'pin_beda' => 'PIN tidak sama.', 'pin_salah' => 'PIN salah.', 'pin_kunci' => 'Terlalu banyak percobaan. Coba lagi dalam 15 menit.', 'petugas_wajib' => 'Masukkan PIN petugas terlebih dahulu.', 'isi_nama_lab' => 'Isi nama laboratorium.', 'lab_sudah_ada' => 'Nama laboratorium sudah ada di daftar. Pilih dari daftar.', 'k_tidak_valid' => 'Nilai k tidak valid.',
         'setup_belum' => 'Lengkapi dulu Sumber Daya dan Manajemen Risiko untuk membuka menu ini.',
         'alat_belum_dinilai' => 'Alat ini belum dinilai risikonya. Isi penilaian di Manajemen Risiko terlebih dahulu.',
         'bhp_kosong_kontrol' => 'Belum ada bahan kontrol berstatus tersedia untuk kategori ini. Isi dulu di Sumber Daya › Bahan Habis Pakai.',
@@ -235,8 +235,8 @@ return [
     ],
     'admin' => [
         'pengguna_ket' => 'Jumlah akun tidak dibatasi. Akun baru mendapat kata sandi sementara yang tampil sekali dan wajib diganti saat masuk pertama kali.',
-        'tambah_akun' => 'Tambah akun', 'peran' => 'Peran', 'nama' => 'Nama', 'username' => 'Nama pengguna', 'ph_username' => 'mis. pkm28 atau pembina3', 'pkm_binaan' => 'Puskesmas (untuk Binaan)',
-        'nip' => 'NIP', 'jabatan' => 'Jabatan', 'tombol_tambah_akun' => 'Tambah akun', 'ket_tambah_akun' => 'Untuk Puskesmas baru, tambahkan dulu di menu Referensi › Laboratorium Binaan.',
+        'tambah_akun' => 'Tambah akun', 'peran' => 'Peran', 'nama' => 'Nama', 'username' => 'Nama pengguna', 'ph_username' => 'mis. pkm28 atau pembina3', 'pkm_binaan' => 'Nama Laboratorium', 'pkm_binaan_kol' => 'Puskesmas (untuk Binaan)', 'lainnya' => 'Lainnya', 'nama_lab_lain' => 'Nama laboratorium lainnya',
+        'nip' => 'NIP', 'jabatan' => 'Jabatan', 'tombol_tambah_akun' => 'Tambah akun', 'ket_tambah_akun' => 'Pilih Lainnya bila laboratorium belum ada di daftar; namanya otomatis ditambahkan ke Referensi › Laboratorium Binaan.',
         'status' => 'Status', 'aktif' => 'aktif', 'belum_ganti_sandi' => 'belum ganti sandi', 'masuk_terakhir' => 'Masuk terakhir', 'reset_sandi' => 'Reset kata sandi',
         'reset_konfirmasi' => 'Kata sandi sementara baru akan dibuat dan wajib diganti saat masuk. Kata sandi lama tidak berlaku lagi.',
         'reset_semua' => 'Reset semua sandi sementara & unduh CSV', 'reset_semua_judul' => 'Reset semua sandi sementara',
@@ -251,6 +251,11 @@ return [
         'versi' => 'Versi', 'versi_isi' => 'Si PANDU {v}. Mesin Westgard diuji setara Excel (7.428 pemeriksaan) dan skenario paper Westgard 1981.',
         'cadangan' => 'Cadangan data', 'cadangan_isi' => 'Basis data dicadangkan oleh backup otomatis akun hosting.',
     ],
+    'petugas' => [
+        'label' => 'Petugas: {nama}', 'ganti' => 'Ganti petugas', 'keluar' => 'Keluar petugas', 'kosong' => 'Masukkan PIN petugas untuk mengisi.',
+        'masuk' => 'Masuk petugas', 'personel' => 'Personel', 'pin' => 'PIN', 'tombol_masuk' => 'Masuk',
+        'tanpa_pin' => 'Belum ada personel aktif yang ber-PIN. Atur PIN di menu Sumber Daya Manusia.', 'info' => 'Sesi petugas berakhir setelah {n} menit tanpa aktivitas.',
+    ],
     'sd' => [
         'labkesmas' => 'Labkesmas (Pembina)', 'pemilik' => 'Pemilik data', 'hanya_lihat' => 'Hanya melihat. Data diisi oleh akun pemiliknya.',
         'aktif' => 'Aktif', 'nonaktif' => 'Nonaktif', 'status' => 'Status', 'tambah' => 'Tambah', 'detail' => 'Detail', 'hapus' => 'Hapus',
@@ -261,7 +266,7 @@ return [
         'langkah_sdm' => 'Sumber Daya Manusia: minimal 1 personel aktif, dan setiap personel aktif sudah berfoto',
         'langkah_alat' => 'Sumber Daya Peralatan: minimal 1 alat berstatus dipakai',
         'langkah_risiko' => 'Manajemen Risiko: aspek Bahan & Reagensia, Lingkungan, Personel, dan setiap alat berstatus dipakai',
-        'selesai' => 'Selesai', 'belum' => 'Belum', 'buka' => 'Buka', 'kurang_foto' => '{n} personel aktif belum berfoto', 'kurang_risiko' => 'belum dinilai: {daftar}',
+        'selesai' => 'Selesai', 'belum' => 'Belum', 'buka' => 'Buka', 'kurang_foto' => 'belum berfoto: {daftar}', 'kurang_risiko' => 'belum dinilai: {daftar}',
         'terkunci' => 'Terkunci sampai data awal lengkap',
         // SDM
         'sdm_sub' => 'Data Personel',
@@ -270,6 +275,8 @@ return [
         'str_no' => 'No. STR', 'str_berlaku' => 'Masa berlaku STR', 'ph_str_berlaku' => 'tanggal, atau seumur hidup', 'sip_no' => 'No. SIP', 'foto' => 'Foto',
         'belum_foto' => 'belum berfoto', 'personel_baru' => 'Personel baru', 'belum_personel' => 'Belum ada personel.', 'kembali_sdm' => 'Data Personel',
         'foto_ket' => 'Foto terbaru, format JPG/PNG maksimal 5 MB. Foto disesuaikan otomatis ke 600 × 800 piksel tanpa dipotong atau diubah proporsinya. Foto lama tetap tersimpan sebagai riwayat.',
+        'pin_judul' => 'PIN personel', 'atur_pin' => 'Atur PIN', 'ganti_pin' => 'Ganti PIN', 'pin_ada' => 'PIN sudah diatur', 'pin_belum' => 'PIN belum diatur',
+        'pin_baru' => 'PIN baru (6 angka)', 'pin_ulang' => 'Ulangi PIN', 'simpan_pin' => 'Simpan PIN', 'pin_tersimpan' => 'PIN tersimpan.',
         'unggah_foto' => 'Unggah foto', 'ganti_foto' => 'Ganti foto', 'foto_tersimpan' => 'Foto disimpan.', 'foto_diunggah' => 'Diunggah {tgl} oleh {oleh}', 'riwayat_foto' => 'Riwayat foto',
         'pelatihan' => 'Riwayat pelatihan', 'pel_nama' => 'Nama pelatihan', 'pel_oleh' => 'Penyelenggara', 'pel_tahun' => 'Tahun', 'belum_pelatihan' => 'Belum ada riwayat pelatihan.',
         // Peralatan
@@ -316,8 +323,8 @@ return [
         'tambah_segmen_ket' => 'Segmen baru diletakkan sebelum Post test; atur posisinya dengan tombol ↑ ↓.',
         'konfirm_hapus_segmen' => 'Hapus segmen ini beserta aspek penilaian praktiknya?',
         'mulai_segmen_staf' => 'Mulai segmen', 'tutup_segmen' => 'Tutup segmen',
-        'konfirm_buka' => 'Buka segmen ini sekarang? Peserta dapat langsung mulai mengerjakan.', 'konfirm_tutup' => 'Tutup segmen ini sekarang? Setelah ditutup, nilai semua peserta terkunci dan peserta yang belum menyelesaikan segmen ini tidak tercatat.',
-        'segmen_dibuka' => 'Segmen dibuka.', 'segmen_ditutup_ok' => 'Segmen ditutup. Nilai terkunci.', 'bukan_pembuka' => 'Anda tidak ditunjuk untuk membuka atau menutup segmen pada kegiatan ini.',
+        'konfirm_buka' => 'Buka segmen ini sekarang? Peserta dapat langsung mulai mengerjakan.', 'konfirm_tutup' => 'Tutup segmen ini sekarang? Peserta yang belum menyelesaikan segmen ini masih dapat menyelesaikannya sampai kegiatan diarsipkan.',
+        'segmen_dibuka' => 'Segmen dibuka.', 'segmen_ditutup_ok' => 'Segmen ditutup.', 'bukan_pembuka' => 'Anda tidak ditunjuk untuk membuka atau menutup segmen pada kegiatan ini.',
         // verifikasi
         'belum_ada_pendaftar' => 'Belum ada pendaftar.', 'verif_ket' => 'Periksa data dan surat tugas, lalu terima, minta dilengkapi, atau tolak. Peserta yang diterima dapat langsung mengikuti pembelajaran.',
         'nama_gelar' => 'Nama lengkap & gelar', 'jabatan' => 'Jabatan fungsional / profesi', 'nip' => 'NIP / kode pegawai', 'surat_tugas' => 'Surat tugas', 'dikirim' => 'Dikirim', 'lihat_pdf' => 'Lihat PDF',
@@ -364,7 +371,8 @@ return [
         'selamat_datang' => 'Selamat datang, {nama}', 'selamat_datang_ket' => 'Anda terdaftar sebagai peserta {keg}. Ikuti segmen sesuai jadwal; segmen dibuka oleh panitia.',
         'mulai_segmen' => 'Mulai segmen', 'selesaikan_segmen' => 'Selesaikan segmen ini', 'konfirm_selesai' => 'Selesaikan segmen ini? Setelah diselesaikan, segmen tidak dapat dibuka kembali.',
         'konfirm_selesai_kosong' => 'Masih ada {n} soal yang belum dijawab dan akan dihitung salah. Tetap selesaikan segmen ini?', 'segmen_selesai_ok' => 'Segmen diselesaikan.',
-        'segmen_sudah_selesai' => 'Anda sudah menyelesaikan segmen ini.', 'segmen_ditutup' => 'Segmen ini sudah ditutup.', 'segmen_belum_dibuka' => 'Segmen ini belum dibuka.',
+        'segmen_sudah_selesai' => 'Anda sudah menyelesaikan segmen ini.', 'segmen_ditutup' => 'Segmen ini sudah ditutup.', 'segmen_belum_dibuka' => 'Segmen ini belum dibuka.', 'segmen_ditutup_bisa' => 'Segmen ini sudah ditutup fasilitator. Anda masih dapat menyelesaikannya sampai kegiatan diarsipkan.',
+        'nilai_tes_anda' => ['pretest' => 'Nilai Pretest Anda', 'posttest' => 'Nilai Post test Anda'], 'n_benar' => '{n} dari {m} soal benar',
         'ket_pretest' => 'Pilih satu jawaban untuk setiap soal. Jawaban tersimpan otomatis. Tekan "Selesaikan segmen ini" setelah semua soal dijawab.',
         'ket_posttest' => 'Soal sama dengan Pretest, urutannya diacak. Jawaban tersimpan otomatis. Tekan "Selesaikan segmen ini" setelah semua soal dijawab.',
         'eval_ket' => 'Beri nilai 0–100 untuk setiap aspek pada setiap narasumber, lalu tekan "Selesaikan segmen ini".', 'nilai_0_100' => 'Nilai (0–100)',
@@ -392,7 +400,7 @@ return [
             'surat_besar' => 'Surat tugas maksimal 1 MB.', 'materi_besar' => 'Berkas materi maksimal 10 MB.', 'bukan_pdf' => 'Berkas harus berformat PDF.',
             'soal_terkunci' => 'Soal tidak dapat diubah karena Pretest atau Post test sudah dibuka.', 'soal_lengkap' => 'Pertanyaan dan keempat pilihan jawaban wajib diisi.', 'soal_kunci' => 'Pilih kunci jawaban.', 'soal_penuh' => 'Soal sudah 25.',
             'isi_judul_materi' => 'Judul materi wajib diisi.', 'isi_aspek' => 'Nama aspek wajib diisi.', 'skala' => 'Nilai harus bilangan bulat 0–100.', 'pilih_praktik' => 'Pilih segmen praktik.',
-            'segmen_belum' => 'Segmen belum dibuka.', 'segmen_ditutup' => 'Segmen sudah ditutup; jawaban tidak dapat diubah.', 'sudah_selesai' => 'Segmen ini sudah Anda selesaikan.',
+            'segmen_belum' => 'Segmen belum dibuka.', 'segmen_ditutup' => 'Segmen sudah ditutup; jawaban tidak dapat diubah.', 'sudah_selesai' => 'Segmen ini sudah Anda selesaikan.', 'pretest_setelah_post' => 'Pretest tidak dapat dikerjakan karena Anda sudah menyelesaikan Post test.',
            
             'kuota' => 'Kuota harus bilangan bulat 1–10.000.', 'kuota_kurang' => 'Kuota tidak boleh lebih kecil dari jumlah peserta yang sudah diterima.', 'kuota_penuh' => 'Kuota kegiatan ini sudah penuh.',
             'email' => 'Format email tidak valid.', 'hp' => 'Nomor HP tidak valid.',

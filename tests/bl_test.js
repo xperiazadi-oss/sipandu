@@ -341,6 +341,49 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   const rr = (await api(A, 'bl_get', { id: k2 })).r.scores.rows[0];
   ok(rr.pre === 75 && rr.post === 100, '12 soal: 9 benar = 75, semua benar = 100');
   ok((await api(A, 'bl_get', { id: +kid })).r.scores.rows.find(r => r.name === 'Ani Lestari, A.Md.AK').post === 88, 'Kegiatan lama (25 soal) tidak berubah: Ani tetap 88');
+  // ---- Segmen yang sudah ditutup tetap dapat diselesaikan peserta (sampai arsip) + kartu nilai
+  const k3 = (await api(A, 'bl_keg_add', { title: 'Kegiatan susulan', org: 'Labkesda', kuota: '5' })).r.id;
+  let d4 = (await api(A, 'bl_get', { id: k3 })).r; const pre3 = d4.segs[0], post3 = d4.segs.find(x => x.jenis === 'posttest'), mat3 = d4.segs[1];
+  for (let i = 0; i < 10; i++) await api(P, 'bl_soal_save', { kegId: k3, text: 'T' + i, oa: 'A', ob: 'B', oc: 'C', od: 'D', key: 'abcd'[i % 4] });
+  await api(A, 'bl_keg_status', { id: k3, v: 'terbit' }); await api(A, 'bl_keg_daftar', { id: k3, v: true });
+  for (const [pg, nm] of [[S1, 'Ani'], [S2, 'Cici']]) await reg(pg, { kegId: k3, name: nm, jabatan: 'ATLM', nip: '9', instansi: 'Instansi ' + nm, email: nm.toLowerCase() + '3@contoh.id', hp: '081211113333' });
+  d4 = (await api(A, 'bl_get', { id: k3 })).r; for (const x of d4.peserta) await api(A, 'bl_verif', { id: x.id, v: 'diterima' });
+  ok(/masih dapat menyelesaikannya sampai kegiatan diarsipkan/.test(await A.evaluate(() => Core.t('bl.konfirm_tutup'))) && (await A.evaluate(() => Core.t('bl.segmen_ditutup_ok'))) === 'Segmen ditutup.', 'Teks konfirmasi & notifikasi tutup segmen diperbarui');
+  await api(A, 'bl_seg_state', { id: pre3.id, v: 'buka' }); await api(A, 'bl_seg_state', { id: pre3.id, v: 'tutup' }); await api(A, 'bl_seg_state', { id: post3.id, v: 'buka' });
+  const kunci3 = {}; (await api(A, 'bl_get', { id: k3 })).r.soal.forEach(q => kunci3[q.id] = q.key);
+  await go(S1, 'bl-' + k3); await S1.waitForTimeout(400);
+  ok(await S1.locator(`a[href="#bl-${k3}-s${pre3.id}"].btn`).count() === 1 && /Ditutup/.test(await txt(S1)), 'Pretest yang sudah ditutup tetap dapat dimulai peserta');
+  await go(S1, `bl-${k3}-s${pre3.id}`); await S1.waitForTimeout(400);
+  ok(/Segmen ini sudah ditutup fasilitator. Anda masih dapat menyelesaikannya sampai kegiatan diarsipkan./.test(await txt(S1)), 'Catatan segmen ditutup tampil');
+  const q3 = (await api(S1, 'bl_get', { id: k3 })).r.tests[pre3.id].soal;
+  for (let i = 0; i < 10; i++) await api(S1, 'bl_jawab', { segId: pre3.id, soalId: q3[i].id, v: i < 6 ? kunci3[q3[i].id] : ({ a: 'b', b: 'c', c: 'd', d: 'a' })[kunci3[q3[i].id]] });
+  await go(S1, `bl-${k3}`); await go(S1, `bl-${k3}-s${pre3.id}`); await S1.waitForTimeout(400);
+  await click(S1, `[data-act=blSelesai][data-id="${pre3.id}"]`); await click(S1, '#cbOK'); await S1.waitForTimeout(700);
+  const kn = await S1.evaluate(() => (document.querySelector('#blNilaiTes') || {}).innerText || '');
+  ok(/Nilai Pretest Anda/.test(kn) && /60/.test(kn) && /6 dari 10 soal benar/.test(kn) && (await S1.evaluate(() => location.hash)) === `#bl-${k3}-s${pre3.id}`, 'Kartu nilai Pretest tampil segera setelah selesai (60 · 6 dari 10)');
+  ok((await api(A, 'bl_get', { id: k3 })).r.scores.rows.find(r => r.name === 'Ani').pre === 60, 'Nilai Pretest susulan masuk rekap');
+  const q3p = (await api(S1, 'bl_get', { id: k3 })).r.tests[post3.id].soal;
+  for (const q of q3p) await api(S1, 'bl_jawab', { segId: post3.id, soalId: q.id, v: kunci3[q.id] });
+  await go(S1, `bl-${k3}-s${post3.id}`); await S1.waitForTimeout(400);
+  await click(S1, `[data-act=blSelesai][data-id="${post3.id}"]`); await click(S1, '#cbOK'); await S1.waitForTimeout(700);
+  ok(/Nilai Post test Anda[\s\S]*100[\s\S]*10 dari 10 soal benar/.test(await S1.evaluate(() => document.querySelector('#blNilaiTes').innerText)), 'Kartu nilai Post test tampil (100 · 10 dari 10)');
+  const own = (await api(S1, 'bl_get', { id: k3 })).r;
+  ok(Object.keys(own.myTest).length === 2 && !JSON.stringify(own.myTest).includes('Cici') && !own.scores, 'Kartu nilai hanya berisi nilai akun itu sendiri');
+  await go(S1, 'bl-' + k3); await S1.waitForTimeout(300); await click(S1, `a[href="#bl-${k3}-s${pre3.id}"]`); await S1.waitForTimeout(400);
+  ok(/Nilai Pretest Anda/.test(await txt(S1)), 'Kartu nilai dapat dibuka lagi dari segmen yang selesai');
+  // Pretest tidak boleh setelah Post test selesai
+  for (const q of q3p) await api(S2, 'bl_jawab', { segId: post3.id, soalId: q.id, v: kunci3[q.id] });
+  await api(S2, 'bl_selesai', { segId: post3.id });
+  const c3 = (await api(S2, 'bl_get', { id: k3 })).r;
+  ok(c3.preBlocked && !c3.tests[pre3.id] && /sudah menyelesaikan Post test/.test((await api(S2, 'bl_jawab', { segId: pre3.id, soalId: q3[0].id, v: 'a' })).e) && /sudah menyelesaikan Post test/.test((await api(S2, 'bl_selesai', { segId: pre3.id })).e), 'Pretest ditolak bila Post test sudah selesai');
+  await go(S2, 'bl-' + k3); await S2.waitForTimeout(400);
+  ok(!(await S2.locator(`a.btn[href="#bl-${k3}-s${pre3.id}"]`).count()), 'Tombol mulai Pretest tidak tampil bagi peserta itu');
+  await go(S2, `bl-${k3}-s${pre3.id}`); await S2.waitForTimeout(300); ok(/Pretest tidak dapat dikerjakan karena Anda sudah menyelesaikan Post test./.test(await txt(S2)), 'Halaman Pretest menampilkan alasan');
+  // segmen ditutup: tetap bisa sampai arsip, setelah arsip tidak
+  await api(A, 'bl_seg_state', { id: mat3.id, v: 'buka' }); await api(A, 'bl_seg_state', { id: mat3.id, v: 'tutup' });
+  ok((await api(S1, 'bl_selesai', { segId: mat3.id })).ok, 'Segmen materi yang sudah ditutup dapat diselesaikan');
+  await api(A, 'bl_keg_status', { id: k3, v: 'arsip' });
+  ok(/diarsipkan/.test((await api(S2, 'bl_selesai', { segId: mat3.id })).e || ''), 'Setelah kegiatan diarsipkan, segmen tidak dapat diselesaikan');
 
     const anyToast = p => p.evaluate(() => [...document.querySelectorAll('.toast')].map(x => x.textContent).join(' '));
   const dbq = sql => require('child_process').execFileSync('php', ['-r', '$d=new PDO("sqlite:/tmp/sp/db.sqlite"); echo $d->query($argv[1])->fetchColumn();', sql]).toString().trim();

@@ -52,3 +52,8 @@ node tests/e2e_server.js          # uji integrasi 3 peran (server PHP lokal + Ch
 node tests/pw_test.js             # ikon mata kata sandi (mouse, sentuh, papan ketik)
 node tests/bl_test.js             # subdomain pembelajaran (server kedua dengan SIPANDU_APP=bl; setelah e2e_server.js)
 ```
+
+## PIN personel (sejak 1.6.0)
+Isian Lembar kerja QC dan Kasus oleh akun Laboratorium Binaan wajib memakai sesi petugas: personel aktif memasukkan PIN 6 angka
+(diatur akun lab di detail personel). Nama personel dicatat pada run, log kasus, komentar, dan audit. Sesi berakhir 30 menit tanpa
+aktivitas atau saat PIN diganti; 5x PIN salah mengunci personel 15 menit. Isian lain (risiko, SDM, alat, BHP, kop) tanpa PIN.

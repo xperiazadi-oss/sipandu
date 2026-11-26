@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.5.0';
+const SIPANDU_VERSION = '1.6.0';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -220,6 +220,8 @@ function client_ip(): string
 function audit(string $action, $detail = null): void
 {
     $u = current_user();
+    // isian akun laboratorium dengan sesi PIN: catat personel pelaksananya
+    if (!empty($GLOBALS['sp_petugas_catat']) && ($detail === null || is_array($detail))) $detail = (array)$detail + ['petugas_id' => $GLOBALS['sp_petugas_catat']['id'], 'petugas' => $GLOBALS['sp_petugas_catat']['nama']];
     sp_insert(sp_app() === 'bl' ? 'bl_audit' : 'audit_log', ['at' => now_str(), 'user_id' => $u['id'] ?? null, 'action' => $action, 'detail' => $detail === null ? null : (is_string($detail) ? $detail : jenc($detail)), 'ip' => client_ip()]);
 }
 

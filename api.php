@@ -22,7 +22,10 @@ function sd_own_row(string $table, int $id, array $u): array
 }
 /** Aksi yang tetap terbuka bagi Binaan sebelum alur wajib selesai */
 const SETUP_OPEN = ['state', 'password_change', 'notif_read', 'notif_read_all', 'sdm_add', 'sdm_update', 'sdm_active', 'sdm_train_add', 'sdm_train_del', 'sdm_foto',
-    'alat_add', 'alat_update', 'alat_active', 'bhp_add', 'bhp_newlot', 'bhp_update', 'bhp_del', 'risk_save', 'kop_upload'];
+    'alat_add', 'alat_update', 'alat_active', 'bhp_add', 'bhp_newlot', 'bhp_update', 'bhp_del', 'risk_save', 'kop_upload', 'sdm_pin'];
+/* Isian Lembar kerja QC dan Kasus oleh akun laboratorium wajib memakai PIN personel (sesi petugas) */
+const PIN_ACTS = ['sheet_create', 'sheet_level', 'level_bhp', 'reagen_pick', 'sheet_meta', 'level_active', 'run_add', 'run_value', 'run_excl', 'run_reason', 'reagen_lot', 'new_lot',
+    'sheet_comment', 'case_comment', 'case_mode', 'case_close_warn', 'case_findings', 'case_corrections', 'case_close'];
 
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') fail('galat.metode', [], 405);
@@ -41,6 +44,9 @@ try {
     if ($isB && !qval('SELECT setup_at FROM puskesmas WHERE id = ?', [$u['puskesmas_id']]) && !in_array($a, SETUP_OPEN, true)) fail('galat.setup_belum', [], 403);
     $own = sd_owner($u);
     $result = null;
+    // nama yang tercatat pada isian: nama personel (sesi PIN) untuk akun laboratorium, selain itu nama akun
+    $pt = ($isB && in_array($a, PIN_ACTS, true)) ? petugas_require($u) : null;
+    $actor = $pt ? $pt['nama'] : $u['nama'];
 
     switch ($a) {
         /* ---------- umum ---------- */
@@ -164,7 +170,7 @@ try {
                 }
                 need($any, 'galat.isi_hasil', 400);
                 $seq = (int)qval('SELECT COUNT(*) FROM runs WHERE sheet_id = ? AND tgl = ?', [$sid, $date]);
-                $rid = sp_insert('runs', ['sheet_id' => $sid, 'tgl' => $date, 'seq' => $seq, 'vals' => jenc($vals), 'excluded' => 0, 'reason' => '', 'note' => str_in($d, 'note', 300), 'by_user' => $u['id'], 'by_name' => $u['nama'], 'created_at' => now_str()]);
+                $rid = sp_insert('runs', ['sheet_id' => $sid, 'tgl' => $date, 'seq' => $seq, 'vals' => jenc($vals), 'excluded' => 0, 'reason' => '', 'note' => str_in($d, 'note', 300), 'by_user' => $u['id'], 'by_name' => $actor, 'created_at' => now_str()]);
                 $ev = sheet_sync($sid);
                 foreach ($ev as $e) if ((int)$e['run']['id'] === $rid) $result = ['runId' => $rid, 'status' => $e['status']];
                 audit('run_add', ['sheet' => $sid, 'run' => $rid]);
@@ -211,9 +217,40 @@ try {
             need($sh && can_view_pkm($u, (int)$sh['puskesmas_id']), 'galat.lembar_tidak_ada', 404);
             $txt = str_in($d, 'text', 2000);
             need($txt !== '', 'galat.isi_pesan', 400);
-            sp_insert('comments', ['target' => 'sheet', 'target_id' => $sh['id'], 'user_id' => $u['id'], 'role' => $role, 'nama' => $u['nama'], 'at' => now_str(), 'body' => $txt]);
+            sp_insert('comments', ['target' => 'sheet', 'target_id' => $sh['id'], 'user_id' => $u['id'], 'role' => $role, 'nama' => $actor, 'at' => now_str(), 'body' => $txt]);
             if ($isP) notify('pkm:' . $sh['puskesmas_id'], t('notif.komentar_pembina', ['matriks' => matrix_name($sh), 'kutip' => mb_substr($txt, 0, 60)]), 'lembar-' . $sh['id']);
             else notify('pembina', t('notif.tanggapan_binaan', ['pkm' => pkm_name((int)$sh['puskesmas_id']), 'matriks' => matrix_name($sh)]), 'lembar-' . $sh['id']);
+            break;
+
+        /* ---------- PIN personel & sesi petugas (akun laboratorium) ---------- */
+        case 'sdm_pin':
+            need($isB);
+            $r = sd_own_row('personel', int_in($d, 'id'), $u);
+            $pin = (string)($d['pin'] ?? ''); $pin2 = (string)($d['pin2'] ?? '');
+            need((bool)preg_match('/^\d{6}$/', $pin), 'galat.pin_format', 400);
+            need($pin === $pin2, 'galat.pin_beda', 400);
+            q('UPDATE personel SET pin_hash = ?, pin_at = ?, pin_gagal = 0, pin_kunci = NULL WHERE id = ?', [password_hash($pin, PASSWORD_DEFAULT), now_str(), $r['id']]);
+            audit('sdm_pin', ['id' => $r['id']]);
+            break;
+        case 'petugas_masuk':
+            need($isB);
+            $r = q1('SELECT * FROM personel WHERE id = ? AND puskesmas_id = ? AND aktif = 1', [int_in($d, 'personelId'), $u['puskesmas_id']]);
+            need($r && $r['pin_hash'], 'galat.data_tidak_valid', 400);
+            need(!$r['pin_kunci'] || (int)$r['pin_kunci'] <= time(), 'galat.pin_kunci', 429);
+            if (!password_verify((string)($d['pin'] ?? ''), (string)$r['pin_hash'])) {
+                $g = (int)$r['pin_gagal'] + 1;
+                if ($g >= PIN_MAKS_GAGAL) q('UPDATE personel SET pin_gagal = 0, pin_kunci = ? WHERE id = ?', [time() + PIN_KUNCI_DETIK, $r['id']]);
+                else q('UPDATE personel SET pin_gagal = ? WHERE id = ?', [$g, $r['id']]);
+                audit('petugas_pin_salah', ['personel' => $r['id']]);
+                fail($g >= PIN_MAKS_GAGAL ? 'galat.pin_kunci' : 'galat.pin_salah', [], $g >= PIN_MAKS_GAGAL ? 429 : 400);
+            }
+            q('UPDATE personel SET pin_gagal = 0, pin_kunci = NULL WHERE id = ?', [$r['id']]);
+            $_SESSION['sp_petugas'] = ['uid' => (int)$u['id'], 'id' => (int)$r['id'], 'pin' => petugas_pin_tanda((string)$r['pin_hash']), 't' => time()];
+            audit('petugas_masuk', ['personel' => $r['id'], 'petugas' => $r['nama']]);
+            break;
+        case 'petugas_keluar':
+            need($isB);
+            unset($_SESSION['sp_petugas']);
             break;
 
         /* ---------- kasus ---------- */
@@ -227,7 +264,7 @@ try {
             need($c && can_view_pkm($u, (int)$c['puskesmas_id']), 'galat.kasus_tidak_ada', 404);
             $txt = str_in($d, 'text', 2000);
             need($txt !== '', 'galat.isi_pesan', 400);
-            sp_insert('comments', ['target' => 'case', 'target_id' => $c['id'], 'user_id' => $u['id'], 'role' => $role, 'nama' => $u['nama'], 'at' => now_str(), 'body' => $txt]);
+            sp_insert('comments', ['target' => 'case', 'target_id' => $c['id'], 'user_id' => $u['id'], 'role' => $role, 'nama' => $actor, 'at' => now_str(), 'body' => $txt]);
             if ($isP) notify('pkm:' . $c['puskesmas_id'], t('notif.saran_pembina', ['id' => $c['id'], 'kutip' => mb_substr($txt, 0, 60)]), 'kasus-' . $c['id']);
             else notify('pembina', t('notif.pesan_binaan', ['pkm' => pkm_name((int)$c['puskesmas_id']), 'id' => $c['id']]), 'kasus-' . $c['id']);
             break;
@@ -245,11 +282,11 @@ try {
                 need($c['mode'] === null, 'galat.data_tidak_valid', 400);
                 $mode = ($d['v'] ?? '') === 'konsultasi' ? 'konsultasi' : 'mandiri';
                 q("UPDATE cases SET mode = ?, state = 'Investigasi' WHERE id = ?", [$mode, $c['id']]);
-                case_log_add($c, t($mode === 'mandiri' ? 'kasus.log_mandiri' : 'kasus.log_konsultasi'), $u['nama']);
+                case_log_add($c, t($mode === 'mandiri' ? 'kasus.log_mandiri' : 'kasus.log_konsultasi'), $actor);
             } elseif ($a === 'case_close_warn') {
                 need($c['type'] === 'Peringatan', 'galat.data_tidak_valid', 400);
                 q("UPDATE cases SET mode = 'mandiri', state = 'Ditutup', verify_date = run_date WHERE id = ?", [$c['id']]);
-                case_log_add($c, t('kasus.log_tutup_peringatan'), $u['nama']);
+                case_log_add($c, t('kasus.log_tutup_peringatan'), $actor);
             } elseif ($a === 'case_findings') {
                 need(in_array($c['state'], ['Terbuka', 'Investigasi'], true) && $c['mode'] !== null, 'galat.data_tidak_valid', 400);
                 $find = []; $corr = [];
@@ -264,7 +301,7 @@ try {
                 if ($other !== '') { $find[] = ['key' => 'lain', 'note' => $other]; $corr[] = ['text' => t('kasus.tindakan_temuan_lain'), 'from' => $other, 'done' => false, 'note' => '']; }
                 need((bool)$find, 'galat.pilih_temuan', 400);
                 q("UPDATE cases SET findings = ?, corrections = ?, state = 'Koreksi' WHERE id = ?", [jenc($find), jenc($corr), $c['id']]);
-                case_log_add($c, t('kasus.log_temuan', ['n' => count($find)]), $u['nama']);
+                case_log_add($c, t('kasus.log_temuan', ['n' => count($find)]), $actor);
             } elseif ($a === 'case_corrections') {
                 need($c['state'] === 'Koreksi', 'galat.data_tidak_valid', 400);
                 $corr = jdec($c['corrections']);
@@ -276,14 +313,14 @@ try {
                     $any = false; foreach ($corr as $k) if ($k['done']) $any = true;
                     need($any, 'galat.centang_tindakan', 400);
                     q("UPDATE cases SET corrections = ?, state = 'Verifikasi' WHERE id = ?", [jenc($corr), $c['id']]);
-                    case_log_add($c, t('kasus.log_koreksi'), $u['nama']);
+                    case_log_add($c, t('kasus.log_koreksi'), $actor);
                 } else q('UPDATE cases SET corrections = ? WHERE id = ?', [jenc($corr), $c['id']]);
             } else { // case_close
                 need($c['state'] === 'Verifikasi', 'galat.data_tidak_valid', 400);
                 $r = q1('SELECT * FROM runs WHERE id = ? AND sheet_id = ?', [int_in($d, 'runId'), $c['sheet_id']]);
                 need($r && ($r['tgl'] >= $c['run_date']) && (int)$r['id'] !== (int)$c['run_id'] && (jdec($r['eval'])['status'] ?? '') === 'DITERIMA', 'galat.run_verifikasi', 400);
                 q("UPDATE cases SET verify_run_id = ?, verify_date = ?, state = 'Ditutup' WHERE id = ?", [$r['id'], $r['tgl'], $c['id']]);
-                case_log_add($c, t('kasus.log_tutup', ['tgl' => $r['tgl']]), $u['nama']);
+                case_log_add($c, t('kasus.log_tutup', ['tgl' => $r['tgl']]), $actor);
             }
             break;
 
@@ -473,10 +510,23 @@ try {
             need((bool)preg_match('/^[a-z0-9._-]{3,40}$/', $uname), 'galat.username_format', 400);
             need($nama !== '', 'galat.isi_nama', 400);
             need(!qval('SELECT COUNT(*) FROM users WHERE username = ?', [$uname]), 'galat.username_dipakai', 400);
-            $pkmId = null;
+            $pkmId = null; $pkmNew = null;
             if ($r === 'binaan') {
-                $pkmId = int_in($d, 'pkmId');
-                need((bool)qval('SELECT COUNT(*) FROM puskesmas WHERE id = ?', [$pkmId]), 'galat.pilih_pkm', 400);
+                $lainNama = preg_replace('/\s+/u', ' ', str_in($d, 'pkmNew', 150));
+                if (!int_in($d, 'pkmId') && array_key_exists('pkmNew', $d)) {
+                    // opsi "Lainnya": laboratorium baru otomatis masuk Referensi › Laboratorium Binaan
+                    need($lainNama !== '', 'galat.isi_nama_lab', 400);
+                    $low = mb_strtolower($lainNama);
+                    foreach (qall('SELECT nama FROM puskesmas') as $x) need(mb_strtolower(preg_replace('/\s+/u', ' ', trim((string)$x['nama']))) !== $low, 'galat.lab_sudah_ada', 400);
+                    $pkmNew = $lainNama;
+                } else {
+                    $pkmId = int_in($d, 'pkmId');
+                    need((bool)qval('SELECT COUNT(*) FROM puskesmas WHERE id = ?', [$pkmId]), 'galat.pilih_pkm', 400);
+                }
+            }
+            if ($pkmNew !== null) {
+                $pkmId = pkm_create($pkmNew);
+                audit('pkm_add', ['id' => $pkmId, 'via' => 'user_add']);
             }
             $pw = temp_password();
             $id = sp_insert('users', ['role' => $r, 'nama' => $nama, 'username' => $uname, 'pass_hash' => password_hash($pw, PASSWORD_DEFAULT), 'must_change' => 1, 'puskesmas_id' => $pkmId, 'nip' => str_in($d, 'nip', 40), 'jabatan' => str_in($d, 'jabatan', 120), 'aktif' => 1, 'created_at' => now_str()]);
@@ -535,9 +585,7 @@ try {
             need($isA);
             $nama = str_in($d, 'name', 150);
             need($nama !== '', 'galat.isi_nama', 400);
-            $n = (int)qval('SELECT COUNT(*) FROM puskesmas') + 1;
-            do { $kode = sprintf('P%02d', $n++); } while (qval('SELECT COUNT(*) FROM puskesmas WHERE kode = ?', [$kode]));
-            $id = sp_insert('puskesmas', ['kode' => $kode, 'nama' => $nama, 'aktif' => 1]);
+            $id = pkm_create($nama);
             audit('pkm_add', ['id' => $id]);
             $result = ['id' => $id];
             break;
@@ -600,11 +648,14 @@ try {
         default:
             fail('galat.aksi_tidak_dikenal');
     }
+    if ($pt) audit('isian_petugas', ['aksi' => $a, 'petugas_id' => $pt['id'], 'petugas' => $pt['nama'], 'ref' => (int)($d['sheetId'] ?? $d['id'] ?? 0)]);
     if ($isB) setup_check((int)$u['puskesmas_id']);
     echo jenc(['ok' => true, 'data' => $result, 'state' => app_state(current_user_fresh((int)$u['id']))]);
 } catch (ApiError $e) {
     http_response_code($e->getCode() ?: 400);
-    echo jenc(['ok' => false, 'error' => $e->getMessage()]);
+    // sesi petugas berakhir: kirim status terbaru agar bilah petugas di layar ikut kosong
+    $st = ($e->getMessage() === t('galat.petugas_wajib') && !empty($u)) ? app_state(current_user_fresh((int)$u['id'])) : null;
+    echo jenc(['ok' => false, 'error' => $e->getMessage()] + ($st ? ['state' => $st] : []));
 } catch (Throwable $e) {
     error_log('SIPANDU API: ' . $e->getMessage() . ' @' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);

@@ -71,7 +71,7 @@ function sp_create_schema(PDO $pdo, string $driver): void
 }
 
 /** Versi skema saat ini; dinaikkan setiap ada kolom/tabel baru */
-const SP_SCHEMA_VERSION = 6;
+const SP_SCHEMA_VERSION = 7;
 
 /** Kolom yang ditambahkan setelah versi 1 (untuk basis data yang sudah terpasang) */
 function sp_added_columns(string $driver): array
@@ -82,6 +82,7 @@ function sp_added_columns(string $driver): array
         'alat' => ['tipe' => 'VARCHAR(150) NULL', 'no_seri' => 'VARCHAR(80) NULL', 'prinsip' => 'VARCHAR(150) NULL', 'tahun' => 'VARCHAR(4) NULL', 'kondisi' => 'VARCHAR(12) NULL', 'kal_terakhir' => 'VARCHAR(10) NULL', 'kal_berikut' => 'VARCHAR(10) NULL', 'created_at' => 'VARCHAR(19) NULL'],
         'sheets' => ['reagen_bhp_id' => 'INT NULL'],
         'users' => ['personel_id' => 'INT NULL'],
+        'personel' => ['pin_hash' => 'VARCHAR(255) NULL', 'pin_at' => 'VARCHAR(19) NULL', 'pin_gagal' => 'INT NOT NULL DEFAULT 0', 'pin_kunci' => 'INT NULL'],
     ];
 }
 

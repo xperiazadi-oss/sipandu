@@ -31,7 +31,7 @@ var Core = (function () {
     return fetch('api.php', { method: 'POST', headers: headers, body: body, credentials: 'same-origin' }).then(function (r) {
       return r.json().catch(function () { return { ok: false, error: t('galat.server') }; }).then(function (j) {
         if (r.status === 401) { location.reload(); throw new Error(j.error || ''); }
-        if (!j.ok) throw new Error(j.error || t('galat.server'));
+        if (!j.ok) { if (j.state) S = j.state; throw new Error(j.error || t('galat.server')); }
         if (j.state) S = j.state;
         return j.data;
       });

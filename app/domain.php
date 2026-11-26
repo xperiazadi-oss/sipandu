@@ -233,6 +233,7 @@ function app_state(array $u): array
     $used = bhp_used_ids($pk);
     $S['bhp'] = array_map(fn($b) => out_bhp($b, isset($used[(int)$b['id']])), $pk ? qall('SELECT * FROM bhp WHERE puskesmas_id = ? ORDER BY jenis, nama, id', [$pk]) : qall('SELECT * FROM bhp ORDER BY puskesmas_id, jenis, nama, id'));
     $S['setup'] = $role === 'binaan' ? setup_status($pk) : null;
+    if ($role === 'binaan') { $pa = petugas_aktif($u); $S['petugas'] = $pa ? ['id' => $pa['id'], 'name' => $pa['nama'], 'idleMin' => intdiv(PETUGAS_IDLE_DETIK, 60)] : null; $S['petugasIdleMin'] = intdiv(PETUGAS_IDLE_DETIK, 60); }
     if ($role === 'admin') {
         $S['users'] = array_map('out_user', qall("SELECT * FROM users WHERE role IN ('admin','pembina','binaan') ORDER BY role, id"));
         $S['sheets'] = []; $S['cases'] = []; $S['risks'] = [];
@@ -304,7 +305,7 @@ function out_personel_list(array $rows): array
         'id' => (int)$p['id'], 'pkmId' => (int)$p['puskesmas_id'], 'name' => $p['nama'], 'nip' => (string)$p['nip'], 'jabatan' => (string)$p['jabatan'],
         'pendidikan' => (string)$p['pendidikan'], 'strNo' => (string)$p['str_no'], 'strBerlaku' => (string)$p['str_berlaku'], 'sipNo' => (string)$p['sip_no'],
         'pelatihan' => jdec($p['pelatihan']), 'fotoId' => $p['foto_id'] === null ? null : (int)$p['foto_id'], 'fotoAt' => $p['foto_at'],
-        'fotos' => $fotos[(int)$p['id']] ?? [], 'active' => (bool)$p['aktif'],
+        'fotos' => $fotos[(int)$p['id']] ?? [], 'active' => (bool)$p['aktif'], 'hasPin' => !empty($p['pin_hash']),
     ], $rows);
 }
 function out_bhp(array $b, bool $used): array
@@ -328,11 +329,46 @@ function bhp_used_ids(?int $pkmId): array
 }
 
 /** Alur wajib Binaan: SDM (≥1 personel aktif, semua personel aktif berfoto) → Peralatan (≥1 alat dipakai) → Manajemen Risiko lengkap */
+/* ---------- PIN personel & sesi petugas ---------- */
+const PIN_MAKS_GAGAL = 5;          // salah berturut-turut sebelum personel dikunci
+const PIN_KUNCI_DETIK = 900;       // lama kunci (15 menit)
+const PETUGAS_IDLE_DETIK = 1800;   // sesi petugas berakhir setelah 30 menit tanpa aktivitas
+
+/** Personel yang sedang aktif sebagai petugas di sesi ini (null bila tidak ada / kedaluwarsa); $touch memperpanjang sesi */
+function petugas_aktif(array $u, bool $touch = false): ?array
+{
+    $s = $_SESSION['sp_petugas'] ?? null;
+    if (!$s || $u['role'] !== 'binaan' || (int)$s['uid'] !== (int)$u['id']) return null;
+    if (time() - (int)$s['t'] > PETUGAS_IDLE_DETIK) { unset($_SESSION['sp_petugas']); return null; }
+    $r = q1('SELECT id, nama, pin_hash FROM personel WHERE id = ? AND puskesmas_id = ? AND aktif = 1', [$s['id'], $u['puskesmas_id']]);
+    // personel dinonaktifkan atau PIN diganti: sesi berakhir
+    if (!$r || !$r['pin_hash'] || petugas_pin_tanda((string)$r['pin_hash']) !== (string)$s['pin']) { unset($_SESSION['sp_petugas']); return null; }
+    if ($touch) $_SESSION['sp_petugas']['t'] = time();
+    return ['id' => (int)$r['id'], 'nama' => (string)$r['nama']];
+}
+function petugas_pin_tanda(string $hash): string { return substr(hash('sha256', $hash), 0, 16); }
+/** Wajibkan sesi petugas; nama personel dicatat juga di setiap catatan audit permintaan ini */
+function petugas_require(array $u): array
+{
+    $p = petugas_aktif($u, true);
+    need((bool)$p, 'galat.petugas_wajib', 403);
+    $GLOBALS['sp_petugas_catat'] = $p;
+    return $p;
+}
+
+/** Laboratorium binaan baru dengan kode berikutnya (P01, P02, …) */
+function pkm_create(string $nama): int
+{
+    $n = (int)qval('SELECT COUNT(*) FROM puskesmas') + 1;
+    do { $kode = sprintf('P%02d', $n++); } while (qval('SELECT COUNT(*) FROM puskesmas WHERE kode = ?', [$kode]));
+    return sp_insert('puskesmas', ['kode' => $kode, 'nama' => $nama, 'aktif' => 1]);
+}
 function setup_status(int $pkmId): array
 {
     $done = (string)(qval('SELECT setup_at FROM puskesmas WHERE id = ?', [$pkmId]) ?? '');
     $nAct = (int)qval('SELECT COUNT(*) FROM personel WHERE puskesmas_id = ? AND aktif = 1', [$pkmId]);
-    $nNoFoto = (int)qval('SELECT COUNT(*) FROM personel WHERE puskesmas_id = ? AND aktif = 1 AND foto_id IS NULL', [$pkmId]);
+    $noFoto = array_map(fn($r) => (string)$r['nama'], qall('SELECT nama FROM personel WHERE puskesmas_id = ? AND aktif = 1 AND foto_id IS NULL ORDER BY nama', [$pkmId]));
+    $nNoFoto = count($noFoto);
     $alats = qall('SELECT id FROM alat WHERE puskesmas_id = ? AND aktif = 1', [$pkmId]);
     $riskMissing = [];
     foreach (['bahan', 'lingkungan', 'personel'] as $a) if (!latest_risk($pkmId, $a, null)) $riskMissing[] = $a;
@@ -341,7 +377,7 @@ function setup_status(int $pkmId): array
     $sdm = $nAct > 0 && $nNoFoto === 0;
     $alat = count($alats) > 0;
     $risk = $alat && !$riskMissing && !$alatMissing;
-    return ['done' => $done !== '', 'doneAt' => $done ?: null, 'sdm' => $sdm, 'sdmActive' => $nAct, 'sdmNoFoto' => $nNoFoto, 'alat' => $alat,
+    return ['done' => $done !== '', 'doneAt' => $done ?: null, 'sdm' => $sdm, 'sdmActive' => $nAct, 'sdmNoFoto' => $nNoFoto, 'sdmNoFotoNames' => $noFoto, 'alat' => $alat,
         'risk' => $risk, 'riskMissing' => $riskMissing, 'alatRiskMissing' => $alatMissing];
 }
 /** Membuka akses penuh sekali saat semua langkah selesai; setelah itu akun tidak dikunci lagi */

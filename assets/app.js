@@ -63,6 +63,7 @@ var App = (function () {
     try { body = view(r, u); } catch (e) { body = '<div class="note bad">' + esc(t('galat.tampilan')) + ': ' + esc(e.message) + '</div>'; if (window.console) console.error(e); }
     root.innerHTML = layout(body, r);
     window.scrollTo(0, ui.keepScroll || 0); ui.keepScroll = 0;
+    if (ui.nuForm && $('#nuRole')) { Object.keys(ui.nuForm).forEach(function (k) { var el = $('#' + k); if (el) el.value = ui.nuForm[k]; }); var lb = $('#nuLainBox'); if (lb) lb.style.display = ui.nuForm.nuPkm === 'lain' ? '' : 'none'; }
   }
   function stage(n) { return '<div class="card"><h2>' + esc(t('menu.' + route().split('-')[0])) + '</h2><p class="muted">' + esc(t('umum.tahap_berikut', { n: n })) + '</p></div>'; }
   function view(r, u) {
@@ -140,7 +141,7 @@ var App = (function () {
     if (noRisk.length) h += '<div class="note">' + esc(t('qc.alat_belum_dinilai', { daftar: noRisk.map(function (a) { return a.name; }).join(', ') })) + ' <a href="#risiko">' + esc(t('menu.risiko')) + '</a></div>';
     if (miss.length) h += '<div class="note">' + esc(t('qc.bhp_kurang', { daftar: miss.join(', ') })) + ' <a href="#sd-bhp">' + esc(t('menu.sd_bhp')) + '</a></div>';
     h += '<div class="card"><h3>' + esc(t('qc.lembar_aktif')) + '</h3>' + sheetTable(act) + '</div>';
-    h += '<div class="card"><h3>' + esc(t('qc.buat_baru')) + '</h3>' + (alats.length ? '<div class="form">' +
+    h += '<div class="card"><h3>' + esc(t('qc.buat_baru')) + '</h3>' + (alats.length ? petugasBar() + '<div class="form">' +
       '<label class="f">' + esc(t('qc.parameter')) + '<select id="nsParam">' + C.S.params.map(function (p) { return opt(p.id, p.name + ' (' + p.cat + ')'); }).join('') + '</select></label>' +
       '<label class="f">' + esc(t('qc.alat')) + '<select id="nsAlat">' + alats.map(function (a) { return opt(a.id, a.name + ' – ' + a.cat); }).join('') + '</select></label>' +
       '<label class="f">' + esc(t('qc.level_tersedia')) + '<select id="nsLv">' + opt('all', t('qc.lv_semua')) + opt('1', t('qc.lv_1')) + opt('2', t('qc.lv_2')) + '</select></label>' +
@@ -186,6 +187,7 @@ var App = (function () {
     var h = '<div class="row"><div class="sp"><div class="small muted">' + esc(C.pkm(sh.pkmId).name) + ' · ' + esc(t('qc.judul')) + '</div><h2>' + esc(p.name) + ' <span class="muted" style="font-weight:400">· ' + esc(C.alat(sh.alatId).name) + '</span></h2></div>' +
       (sh.status === 'aktif' ? chip(t('lembar.lembar_aktif'), 'ok') : chip(t('lembar.ditutup_pada', { tgl: sh.closedAt, alasan: sh.closeReason }), 'muted')) + '</div>';
     if (sh.prevId) h += '<p class="small muted">' + esc(t('lembar.lanjutan')) + ' <a href="#lembar-' + sh.prevId + '">' + esc(t('lembar.lembar_sebelumnya')) + '</a></p>';
+    h += petugasBar();
     var ni = C.notIdeal(sh);
     if (ni.length) h += '<div class="note"><b>' + esc(t('lembar.tidak_ideal_judul')) + '</b><ul style="margin:4px 0 0 18px;padding:0">' + ni.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
     if (ed) h += '<div class="row" style="margin:10px 0"><button class="btn o s" data-act="reagenLot" data-id="' + sh.id + '">' + esc(t('lembar.tombol_lot_reagen')) + '</button><button class="btn o s" data-act="newLot" data-id="' + sh.id + '">' + esc(t('lembar.tombol_lot_kontrol')) + '</button></div>';
@@ -274,6 +276,7 @@ var App = (function () {
     if (!ui.caseComments || ui.caseComments.id !== c.id) { ui.caseComments = { id: c.id, list: null }; C.api('case_comments', { id: c.id }).then(function (r) { ui.caseComments = { id: c.id, list: r }; render(); }); }
     var prio = E.priority(c.indication, C.riskScores(c.pkmId, sh.alatId));
     var h = '<div class="small muted">' + esc(C.pkm(c.pkmId).name) + ' · <a href="#lembar-' + sh.id + '">' + esc(C.matrixName(sh)) + '</a></div><div class="row"><h2 class="sp">' + esc(t('kasus.judul', { id: c.id, tgl: c.runDate })) + '</h2>' + caseChip(c.state) + '</div>';
+    if (mine) h += petugasBar();
     var steps = ['Terbuka', 'Investigasi', 'Koreksi', 'Verifikasi', 'Ditutup'], si = steps.indexOf(c.state);
     h += '<div class="steps">' + steps.map(function (s, i) { return '<span class="' + (i === si ? 'on' : i < si ? 'done' : '') + '">' + (i + 1) + '. ' + esc(t('kasus.tahap.' + s)) + '</span>'; }).join('') + '</div>';
     h += '<div class="grid g3"><div class="kpi"><span>' + esc(t('kasus.jenis_notif')) + '</span><b style="font-size:1.2rem">' + typeChip(c.type) + '</b></div><div class="kpi"><span>' + esc(t('kasus.indikasi_jenis')) + '</span><b style="font-size:1.2rem">' + esc(c.indication) + '</b>' + (c.note ? '<span>' + esc(c.note) + '</span>' : '') + '</div><div class="kpi"><span>' + esc(t('kasus.aturan_dilanggar')) + '</span><b style="font-size:1.2rem">' + esc(rules(c.violations)) + '</b></div></div>';
@@ -377,13 +380,35 @@ var App = (function () {
     return h;
   }
 
+  /* ---------- Sesi petugas (PIN personel) untuk Lembar kerja QC & Kasus ---------- */
+  function petugasBar() {
+    if (C.me().role !== 'binaan') return '';
+    var p = C.S.petugas, info = '<span class="small muted">' + esc(t('petugas.info', { n: C.S.petugasIdleMin || 30 })) + '</span>';
+    if (p) return '<div class="note info row" id="petugasBar"><b class="sp">' + esc(t('petugas.label', { nama: p.name })) + '</b>' + info + '<button class="btn o s" data-act="petugasMasuk">' + esc(t('petugas.ganti')) + '</button><button class="btn o s" data-act="petugasKeluar">' + esc(t('petugas.keluar')) + '</button></div>';
+    return '<div class="note warn row" id="petugasBar"><b class="sp">' + esc(t('petugas.kosong')) + '</b>' + info + '<button class="btn s" data-act="petugasMasuk">' + esc(t('petugas.masuk')) + '</button></div>';
+  }
+  function petugasModal() {
+    var list = C.S.personel.filter(function (x) { return x.active && x.hasPin; });
+    if (!list.length) return toast(t('petugas.tanpa_pin'), true);
+    var m = modal('<h3>' + esc(t('petugas.masuk')) + '</h3><div class="form"><label class="f">' + esc(t('petugas.personel')) + '<select class="inp" id="ptP">' + list.map(function (x) { return opt(x.id, x.name, C.S.petugas && C.S.petugas.id === x.id); }).join('') + '</select></label><label class="f">' + esc(t('petugas.pin')) + '<input class="inp" id="ptPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label></div><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="ptOK">' + esc(t('petugas.tombol_masuk')) + '</button></div>');
+    var go1 = function () { var pin = $('#ptPin', m).value; C.api('petugas_masuk', { personelId: +$('#ptP', m).value, pin: pin }).then(function () { m.remove(); keepScroll(); render(); }, function (e) { toast(e.message, true); $('#ptPin', m).value = ''; $('#ptPin', m).focus(); }); };
+    $('#ptOK', m).onclick = go1;
+    $('#ptPin', m).addEventListener('keydown', function (e) { if (e.key === 'Enter') go1(); });
+    $('#ptPin', m).focus();
+  }
+  function pinModal(x) {
+    var m = modal('<h3>' + esc(t('sd.pin_judul')) + ' – ' + esc(x.name) + '</h3><div class="form"><label class="f">' + esc(t('sd.pin_baru')) + '<input class="inp" id="pn1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label><label class="f">' + esc(t('sd.pin_ulang')) + '<input class="inp" id="pn2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="pnOK">' + esc(t('sd.simpan_pin')) + '</button></div>');
+    $('#pnOK', m).onclick = function () { call('sdm_pin', { id: x.id, pin: $('#pn1', m).value, pin2: $('#pn2', m).value }, t('sd.pin_tersimpan')).then(function () { m.remove(); }); };
+    $('#pn1', m).focus();
+  }
+
   /* ---------- Alur wajib Binaan ---------- */
   function setupCard(compact) {
     var st = C.S.setup || {}, step = function (ok, txt, link, extra) { return '<li class="row" style="margin:6px 0">' + chip(t(ok ? 'sd.selesai' : 'sd.belum'), ok ? 'ok' : 'warn') + '<span class="sp">' + esc(txt) + (extra ? ' <span class="small muted">(' + esc(extra) + ')</span>' : '') + '</span>' + (link && !ok ? '<a class="btn s" href="#' + link + '">' + esc(t('sd.buka')) + '</a>' : '') + '</li>'; };
     var miss = (st.riskMissing || []).map(aspectName).concat((st.alatRiskMissing || []).map(function (id) { return C.alat(id).name; }));
     return '<div class="card"' + (compact ? '' : ' style="max-width:860px"') + '><h3>' + esc(t('sd.setup_judul')) + '</h3><p class="small muted">' + esc(t('sd.setup_ket')) + '</p><ol style="list-style:none;padding:0;margin:0">' +
       step(true, t('sd.langkah_sandi')) +
-      step(st.sdm, t('sd.langkah_sdm'), 'sd-sdm', st.sdmNoFoto ? t('sd.kurang_foto', { n: st.sdmNoFoto }) : '') +
+      step(st.sdm, t('sd.langkah_sdm'), 'sd-sdm', st.sdmNoFoto ? t('sd.kurang_foto', { daftar: (st.sdmNoFotoNames || []).join(', ') }) : '') +
       step(st.alat, t('sd.langkah_alat'), 'sd-alat') +
       step(st.risk, t('sd.langkah_risiko'), 'risiko', miss.length && st.alat ? t('sd.kurang_risiko', { daftar: miss.join(', ') }) : '') + '</ol></div>';
   }
@@ -420,7 +445,8 @@ var App = (function () {
     var fld = function (k, key, ph) { return '<label class="f">' + esc(t(key)) + '<input class="inp" data-sdm="' + x.id + '" data-k="' + k + '" value="' + esc(x[k]) + '"' + (ph ? ' placeholder="' + esc(t(ph)) + '"' : '') + (ed ? '' : ' disabled') + '></label>'; };
     var h = '<div class="small"><a href="#sd-sdm">← ' + esc(t('sd.kembali_sdm')) + '</a> · ' + esc(C.ownerName(x.pkmId)) + '</div><div class="row"><h2 class="sp">' + esc(x.name) + '</h2>' + (x.active ? chip(t('sd.aktif'), 'ok') : chip(t('sd.nonaktif'), 'muted')) + '</div>';
     h += '<div class="grid g2" style="grid-template-columns:220px 1fr;align-items:start"><div class="card">' + fotoImg(x.fotoId, 180) + (cur ? '<p class="small muted">' + esc(t('sd.foto_diunggah', { tgl: cur.at, oleh: cur.by })) + '</p>' : '<p>' + chip(t('sd.belum_foto'), 'bad') + '</p>') +
-      (ed ? '<label class="f" style="margin-top:8px">' + esc(t(cur ? 'sd.ganti_foto' : 'sd.unggah_foto')) + '<input type="file" id="sdmFoto" data-id="' + x.id + '" accept="image/jpeg,image/png"></label><p class="small muted">' + esc(t('sd.foto_ket')) + '</p>' : '') + '</div>';
+      (ed ? '<label class="f" style="margin-top:8px">' + esc(t(cur ? 'sd.ganti_foto' : 'sd.unggah_foto')) + '<input type="file" id="sdmFoto" data-id="' + x.id + '" accept="image/jpeg,image/png"></label><p class="small muted">' + esc(t('sd.foto_ket')) + '</p>' : '') +
+      (C.me().role === 'binaan' && ed ? '<hr><div class="small muted">' + esc(t('sd.pin_judul')) + '</div><p>' + chip(t(x.hasPin ? 'sd.pin_ada' : 'sd.pin_belum'), x.hasPin ? 'ok' : 'warn') + '</p><button class="btn o s" data-act="sdmPin" data-id="' + x.id + '">' + esc(t(x.hasPin ? 'sd.ganti_pin' : 'sd.atur_pin')) + '</button>' : '') + '</div>';
     h += '<div class="card"><div class="form">' + fld('name', 'sd.nama') + fld('nip', 'sd.nip') + fld('jabatan', 'sd.jabatan', 'sd.ph_jabatan') + fld('pendidikan', 'sd.pendidikan') + fld('strNo', 'sd.str_no') + fld('strBerlaku', 'sd.str_berlaku', 'sd.ph_str_berlaku') + fld('sipNo', 'sd.sip_no') + '</div></div></div>';
     h += '<div class="card"><h3>' + esc(t('sd.pelatihan')) + '</h3>' + (x.pelatihan.length ? '<div class="tbl"><table><tr><th>' + esc(t('sd.pel_nama')) + '</th><th>' + esc(t('sd.pel_oleh')) + '</th><th>' + esc(t('sd.pel_tahun')) + '</th><th></th></tr>' + x.pelatihan.map(function (p, i) { return '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.by) + '</td><td>' + esc(p.tahun) + '</td><td>' + (ed ? '<button class="btn o s" data-act="trainDel" data-id="' + x.id + '" data-i="' + i + '">' + esc(t('sd.hapus')) + '</button>' : '') + '</td></tr>'; }).join('') + '</table></div>' : '<p class="muted">' + esc(t('sd.belum_pelatihan')) + '</p>') +
       (ed ? '<div class="form" style="margin-top:10px"><label class="f">' + esc(t('sd.pel_nama')) + '<input class="inp" id="trN"></label><label class="f">' + esc(t('sd.pel_oleh')) + '<input class="inp" id="trB"></label><label class="f">' + esc(t('sd.pel_tahun')) + '<input class="inp" id="trT" inputmode="numeric" maxlength="4"></label><div><button class="btn s" data-act="trainAdd" data-id="' + x.id + '">' + esc(t('sd.tambah')) + '</button></div></div>' : '') + '</div>';
@@ -481,9 +507,9 @@ var App = (function () {
     var us = C.S.users || [];
     var pkOpts = function (sel) { return C.S.pkms.map(function (p) { return opt(p.id, p.name, String(p.id) === String(sel)); }).join(''); };
     var h = '<h2>' + esc(t('menu.pengguna')) + '</h2><p class="muted">' + esc(t('admin.pengguna_ket')) + '</p>';
-    h += '<div class="card"><h3>' + esc(t('admin.tambah_akun')) + '</h3><div class="form"><label class="f">' + esc(t('admin.peran')) + '<select id="nuRole">' + opt('binaan', t('peran.binaan')) + opt('pembina', t('peran.pembina')) + '</select></label><label class="f">' + esc(t('admin.nama')) + '<input class="inp" id="nuName"></label><label class="f">' + esc(t('admin.username')) + '<input class="inp" id="nuUser" placeholder="' + esc(t('admin.ph_username')) + '"></label><label class="f">' + esc(t('admin.pkm_binaan')) + '<select id="nuPkm">' + pkOpts() + '</select></label><label class="f">' + esc(t('admin.nip')) + '<input class="inp" id="nuNip"></label><label class="f">' + esc(t('admin.jabatan')) + '<input class="inp" id="nuJab"></label><div><button class="btn" data-act="userAdd">' + esc(t('admin.tombol_tambah_akun')) + '</button></div></div><p class="small muted">' + esc(t('admin.ket_tambah_akun')) + '</p></div>';
+    h += '<div class="card"><h3>' + esc(t('admin.tambah_akun')) + '</h3><div class="form"><label class="f">' + esc(t('admin.peran')) + '<select id="nuRole">' + opt('binaan', t('peran.binaan')) + opt('pembina', t('peran.pembina')) + '</select></label><label class="f">' + esc(t('admin.nama')) + '<input class="inp" id="nuName"></label><label class="f">' + esc(t('admin.username')) + '<input class="inp" id="nuUser" placeholder="' + esc(t('admin.ph_username')) + '"></label><label class="f">' + esc(t('admin.pkm_binaan')) + '<select id="nuPkm">' + pkOpts() + opt('lain', t('admin.lainnya')) + '</select></label><label class="f" id="nuLainBox" style="display:none">' + esc(t('admin.nama_lab_lain')) + '<input class="inp" id="nuPkmLain" maxlength="150"></label><label class="f">' + esc(t('admin.nip')) + '<input class="inp" id="nuNip"></label><label class="f">' + esc(t('admin.jabatan')) + '<input class="inp" id="nuJab"></label><div><button class="btn" data-act="userAdd">' + esc(t('admin.tombol_tambah_akun')) + '</button></div></div><p class="small muted">' + esc(t('admin.ket_tambah_akun')) + '</p></div>';
     h += '<div class="row" style="margin:10px 0"><span class="sp"></span><button class="btn o" data-act="userResetAll">' + esc(t('admin.reset_semua')) + '</button></div>';
-    h += '<div class="tbl"><table><tr><th>' + esc(t('admin.peran')) + '</th><th>' + esc(t('admin.nama')) + '</th><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('admin.pkm_binaan')) + '</th><th>' + esc(t('admin.nip')) + '</th><th>' + esc(t('admin.jabatan')) + '</th><th>' + esc(t('admin.status')) + '</th><th>' + esc(t('admin.masuk_terakhir')) + '</th><th></th></tr>' + us.map(function (x) {
+    h += '<div class="tbl"><table><tr><th>' + esc(t('admin.peran')) + '</th><th>' + esc(t('admin.nama')) + '</th><th>' + esc(t('admin.username')) + '</th><th>' + esc(t('admin.pkm_binaan_kol')) + '</th><th>' + esc(t('admin.nip')) + '</th><th>' + esc(t('admin.jabatan')) + '</th><th>' + esc(t('admin.status')) + '</th><th>' + esc(t('admin.masuk_terakhir')) + '</th><th></th></tr>' + us.map(function (x) {
       var adm = x.role === 'admin';
       return '<tr><td>' + esc(t('peran.' + x.role)) + '</td><td><input class="cell" data-user="' + x.id + '" data-k="nama" value="' + esc(x.name) + '"></td><td><input class="cell" data-user="' + x.id + '" data-k="username" value="' + esc(x.username) + '"' + (adm ? ' disabled' : '') + '></td><td>' + (x.role === 'binaan' ? '<select class="inp" data-user="' + x.id + '" data-k="pkmId">' + pkOpts(x.pkmId) + '</select>' : '–') + '</td><td><input class="cell" data-user="' + x.id + '" data-k="nip" value="' + esc(x.nip) + '"></td><td><input class="cell" data-user="' + x.id + '" data-k="jabatan" value="' + esc(x.jabatan) + '"></td><td>' + (adm ? chip(t('admin.aktif'), 'ok') : '<label class="small"><input type="checkbox" data-act="userActive" data-id="' + x.id + '" ' + (x.active ? 'checked' : '') + '> ' + esc(t('admin.aktif')) + '</label>') + (x.mustChange ? ' ' + chip(t('admin.belum_ganti_sandi'), 'warn') : '') + '</td><td class="small">' + esc(x.lastLogin || '–') + '</td><td>' + (adm ? '' : '<button class="btn o s" data-act="resetPw" data-id="' + x.id + '">' + esc(t('admin.reset_sandi')) + '</button>') + '</td></tr>';
     }).join('') + '</table></div>';
@@ -535,6 +561,9 @@ var App = (function () {
       var m = modal('<h3>' + esc(t('umum.ganti_sandi')) + '</h3><label class="f">' + esc(t('masuk.sandi_lama')) + '' + pwField('pwO', 'current-password') + '</label><label class="f">' + esc(t('masuk.sandi_baru')) + '' + pwField('pwN', 'new-password') + '</label><p class="small muted">' + esc(t('masuk.syarat_sandi')) + '</p><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="pwOK">' + esc(t('umum.simpan')) + '</button></div>');
       $('#pwOK', m).onclick = function () { C.api('password_change', { old: $('#pwO', m).value, new: $('#pwN', m).value }).then(function () { m.remove(); toast(t('umum.sandi_diganti')); }, function (e) { toast(e.message, true); }); };
     },
+    petugasMasuk: function () { petugasModal(); },
+    petugasKeluar: function () { C.api('petugas_keluar', {}).then(function () { keepScroll(); render(); }); },
+    sdmPin: function (el) { var x = C.byId(C.S.personel, el.dataset.id); if (x) pinModal(x); },
     newSheet: function () { call('sheet_create', { paramId: +$('#nsParam').value, alatId: +$('#nsAlat').value, lv: $('#nsLv').value }).then(function (r) { go('lembar-' + r.id); }); },
     lvActive: function (el) { var id = sheetIdFromRoute(); keepScroll(); C.invalidate(id); call('level_active', { sheetId: +id, i: +el.dataset.i, v: el.checked }); },
     addRun: function (el) {
@@ -583,7 +612,12 @@ var App = (function () {
         });
       };
     },
-    userAdd: function () { call('user_add', { role: $('#nuRole').value, name: $('#nuName').value, username: $('#nuUser').value, pkmId: +$('#nuPkm').value, nip: $('#nuNip').value, jabatan: $('#nuJab').value }).then(showPasswordResult); },
+    userAdd: function () {
+      var lain = $('#nuPkm').value === 'lain';
+      // isian form dipertahankan bila server menolak (mis. nama laboratorium kosong / sudah ada)
+      ui.nuForm = { nuRole: $('#nuRole').value, nuName: $('#nuName').value, nuUser: $('#nuUser').value, nuPkm: $('#nuPkm').value, nuPkmLain: $('#nuPkmLain').value, nuNip: $('#nuNip').value, nuJab: $('#nuJab').value };
+      C.api('user_add', { role: $('#nuRole').value, name: $('#nuName').value, username: $('#nuUser').value, pkmId: lain ? 0 : +$('#nuPkm').value, pkmNew: lain ? $('#nuPkmLain').value : '', nip: $('#nuNip').value, jabatan: $('#nuJab').value }).then(function (r) { ui.nuForm = null; render(); showPasswordResult(r); }, function (e) { toast(e.message, true); render(); });
+    },
     userActive: function (el) { call('user_active', { id: +el.dataset.id, v: el.checked }); },
     resetPw: function (el) { var m = modal('<h3>' + esc(t('admin.reset_sandi')) + '</h3><p>' + esc(t('admin.reset_konfirmasi')) + '</p><div class="row"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="rpOK">' + esc(t('admin.reset_sandi')) + '</button></div>'); $('#rpOK', m).onclick = function () { m.remove(); call('user_reset_pw', { id: +el.dataset.id }).then(showPasswordResult); }; },
     pkmAdd: function () { call('pkm_add', { name: $('#npkm').value }, t('umum.ditambahkan')); },
@@ -616,6 +650,7 @@ var App = (function () {
   function onChange(e) {
     var el = e.target, d = el.dataset, r = route();
     for (var xi = 0; xi < EXT_CHANGE.length; xi++) if (EXT_CHANGE[xi](el, d, r) === true) return;
+    if (el.id === 'nuPkm') { var lb = $('#nuLainBox'); if (lb) lb.style.display = el.value === 'lain' ? '' : 'none'; if (el.value === 'lain') $('#nuPkmLain').focus(); return; }
     if (d.act === 'month') { ui.month[d.id] = el.value; keepScroll(); render(); return; }
     if (d.act && el.type === 'checkbox') return;
     if (r.indexOf('lembar-') === 0) {
@@ -653,7 +688,7 @@ var App = (function () {
       var f = A[x.dataset.act]; if (f) { if (x.tagName === 'A') e.preventDefault(); f(x, e); }
     });
     root.addEventListener('change', onChange);
-    window.addEventListener('hashchange', render);
+    window.addEventListener('hashchange', function () { ui.nuForm = null; render(); });
     render();
   }
   return {

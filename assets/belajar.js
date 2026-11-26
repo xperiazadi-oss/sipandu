@@ -396,7 +396,10 @@
     if (d.result) h += resultCard(d);
     h += '<h3>' + esc(t('bl.segmen')) + '</h3>' + d.segs.map(function (s, i) {
       var isDone = !!done[s.id];
-      var btn = isDone ? H.chip(t('bl.selesai'), 'ok') : s.status === 'buka' ? '<a class="btn s" href="#bl-' + k.id + '-s' + s.id + '">' + esc(t('bl.mulai_segmen')) + '</a>' : chipStatus('seg', s.status);
+      var tes = s.jenis === 'pretest' || s.jenis === 'posttest', href = '#bl-' + k.id + '-s' + s.id;
+      // segmen yang sudah ditutup tetap dapat dikerjakan sampai kegiatan diarsipkan (Pretest tidak setelah Post test selesai)
+      var bisa = s.status === 'buka' || (s.status === 'tutup' && k.status !== 'arsip' && !(s.jenis === 'pretest' && d.preBlocked));
+      var btn = isDone ? (tes ? '<a href="' + href + '">' + H.chip(t('bl.selesai'), 'ok') + '</a>' : H.chip(t('bl.selesai'), 'ok')) : bisa ? (s.status === 'tutup' ? chipStatus('seg', s.status) + ' ' : '') + '<a class="btn s" href="' + href + '">' + esc(t('bl.mulai_segmen')) + '</a>' : chipStatus('seg', s.status);
       return '<div class="card seg-card' + (s.status === 'buka' && !isDone ? ' live' : '') + '"><div class="row"><b class="sp">' + (i + 1) + '. ' + esc(segName(s)) + '</b>' + btn + '</div><div class="small muted">' + esc(t('bl.jenis_opsi.' + s.jenis)) + ' · ' + esc(t('bl.pic')) + ': ' + esc(s.picName || '–') + ' · ' + esc(sched(s)) + '</div>' +
         ((s.sesi || []).length ? '<ul class="small" style="margin:6px 0 0 16px;padding:0">' + s.sesi.map(function (x) { return '<li>' + esc(x.title) + ' – ' + esc(sched(x)) + (x.pic ? ' · ' + esc(x.pic) : '') + '</li>'; }).join('') + '</ul>' : '') + '</div>';
     }).join('');
@@ -423,8 +426,13 @@
     if (!s) return H.denied();
     var k = d.keg, done = !!(d.done || {})[s.id];
     var h = '<div class="small"><a href="#bl-' + k.id + '">← ' + esc(k.title) + '</a></div><div class="row"><h2 class="sp">' + esc(segName(s)) + '</h2>' + (done ? H.chip(t('bl.selesai'), 'ok') : chipStatus('seg', s.status)) + '</div><p class="muted">' + esc(t('bl.pic')) + ': ' + esc(s.picName || '–') + ' · ' + esc(sched(s)) + '</p>';
-    if (done) return h + '<div class="note ok">' + esc(t('bl.segmen_sudah_selesai')) + '</div>';
-    if (s.status !== 'buka') return h + '<div class="note info">' + esc(t(s.status === 'tutup' ? 'bl.segmen_ditutup' : 'bl.segmen_belum_dibuka')) + '</div>';
+    var mt = (d.myTest || {})[s.id];
+    if (done) return h + '<div class="note ok">' + esc(t('bl.segmen_sudah_selesai')) + '</div>' + (mt ? '<div class="card" id="blNilaiTes" style="max-width:420px"><div class="small muted">' + esc(t('bl.nilai_tes_anda.' + s.jenis)) + '</div><div style="font-size:2.2rem;font-weight:800">' + num(mt.nilai) + '</div><div class="small">' + esc(t('bl.n_benar', { n: mt.benar, m: mt.n })) + '</div></div>' : '');
+    // segmen yang sudah ditutup fasilitator tetap dapat diselesaikan sampai kegiatan diarsipkan
+    if (s.status === 'belum') return h + '<div class="note info">' + esc(t('bl.segmen_belum_dibuka')) + '</div>';
+    if (k.status === 'arsip') return h + '<div class="note info">' + esc(t('bl.segmen_ditutup')) + '</div>';
+    if (s.jenis === 'pretest' && d.preBlocked) return h + '<div class="note bad">' + esc(t('bl.galat.pretest_setelah_post')) + '</div>';
+    if (s.status === 'tutup') h += '<div class="note warn">' + esc(t('bl.segmen_ditutup_bisa')) + '</div>';
     if (s.jenis === 'pretest' || s.jenis === 'posttest') {
       var tst = (d.tests || {})[s.id] || { soal: [], answers: {} };
       var nAns = Object.keys(tst.answers).length;
@@ -537,7 +545,7 @@
         var tst = d.tests[s.id], left = tst.soal.length - Object.keys(tst.answers).length;
         if (left > 0) msg = t('bl.konfirm_selesai_kosong', { n: left });
       }
-      confirmBox(t('bl.selesaikan_segmen'), msg, t('bl.selesaikan_segmen'), function () { act('bl_selesai', { segId: s.id }, t('bl.segmen_selesai_ok')).then(function () { H.go('bl-' + d.keg.id); }); });
+      confirmBox(t('bl.selesaikan_segmen'), msg, t('bl.selesaikan_segmen'), function () { act('bl_selesai', { segId: s.id }, t('bl.segmen_selesai_ok')).then(function () { if (s.jenis !== 'pretest' && s.jenis !== 'posttest') H.go('bl-' + d.keg.id); }); });
     }
   });
 

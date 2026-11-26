@@ -311,19 +311,40 @@ function bl_detail(array $u, array $k): array
         $preDone = $preSeg && isset($done[(int)$preSeg['id']]);
         $d['materi'] = $preDone ? $materi() : [];
         $d['materiLocked'] = !$preDone;
-        // soal hanya untuk segmen tes yang sedang dibuka dan belum diselesaikan peserta
-        $soal = bl_soal($kid); $d['tests'] = [];
+        // soal untuk segmen tes yang sudah dibuka (termasuk yang sudah ditutup) dan belum diselesaikan peserta
+        $soal = bl_soal($kid); $d['tests'] = []; $d['myTest'] = [];
         foreach ($segs as $s) {
-            if (!in_array($s['jenis'], ['pretest', 'posttest'], true) || $s['status'] !== 'buka' || isset($done[(int)$s['id']])) continue;
+            if (!in_array($s['jenis'], ['pretest', 'posttest'], true)) continue;
+            if (isset($done[(int)$s['id']])) { $d['myTest'][(int)$s['id']] = bl_nilai_tes($soal, (int)$s['id'], $pid); continue; }
+            if (!bl_seg_bisa_diisi($k, $s) || bl_pre_terlambat($s, $segs, $done)) continue;
             $ans = []; foreach (qall('SELECT soal_id, pilih FROM bl_jawab WHERE peserta_id = ? AND seg_id = ?', [$pid, $s['id']]) as $j) $ans[(int)$j['soal_id']] = $j['pilih'];
             $d['tests'][(int)$s['id']] = ['soal' => array_map(fn($q) => ['id' => (int)$q['id'], 'text' => $q['teks'], 'a' => $q['a'], 'b' => $q['b'], 'c' => $q['c'], 'd' => $q['d']], bl_order_for($soal, $s, $pid)), 'answers' => (object)$ans];
         }
-        $d['tests'] = (object)$d['tests'];
+        $d['tests'] = (object)$d['tests']; $d['myTest'] = (object)$d['myTest'];
+        $d['preBlocked'] = false; foreach ($segs as $s) if ($s['jenis'] === 'pretest' && !isset($done[(int)$s['id']]) && bl_pre_terlambat($s, $segs, $done)) $d['preBlocked'] = true;
         $ev = []; foreach (qall('SELECT * FROM bl_eval WHERE peserta_id = ?', [$pid]) as $e) $ev[(int)$e['narsum_id']][(int)$e['aspek']] = (int)$e['nilai'];
         $d['myEval'] = (object)array_map(fn($x) => (object)$x, $ev);
         $d['result'] = bl_my_result($k, $pid);
     }
     return $d;
+}
+
+/** Segmen dapat dikerjakan peserta: sudah dibuka (status buka atau tutup) dan kegiatan belum diarsipkan */
+function bl_seg_bisa_diisi(array $k, array $s): bool { return $k['status'] !== 'arsip' && in_array($s['status'], ['buka', 'tutup'], true); }
+/** Pretest tidak boleh dikerjakan setelah peserta menyelesaikan Post test (nilai Pre dan Progres menjadi tidak sahih) */
+function bl_pre_terlambat(array $s, array $segs, array $done): bool
+{
+    if ($s['jenis'] !== 'pretest') return false;
+    foreach ($segs as $x) if ($x['jenis'] === 'posttest' && isset($done[(int)$x['id']])) return true;
+    return false;
+}
+/** Nilai tes satu segmen milik peserta (sama dengan rumus rekap: benar ÷ jumlah soal × 100) */
+function bl_nilai_tes(array $soal, int $segId, int $pid): array
+{
+    $kunci = []; foreach ($soal as $q) $kunci[(int)$q['id']] = $q['kunci'];
+    $benar = 0; foreach (qall('SELECT soal_id, pilih FROM bl_jawab WHERE peserta_id = ? AND seg_id = ?', [$pid, $segId]) as $j) if (($kunci[(int)$j['soal_id']] ?? null) === $j['pilih']) $benar++;
+    $n = count($soal);
+    return ['nilai' => bl_round($benar / max(1, $n) * 100), 'benar' => $benar, 'n' => $n];
 }
 
 /** Hasil peserta: tampil setelah peserta menyelesaikan semua segmen, atau setelah semua segmen ditutup */
@@ -895,8 +916,12 @@ function bl_api(string $a, array $d, array $u)
             [$s, $k] = $segOf(int_in($d, 'segId'));
             $me = bl_me_peserta($u, (int)$k['id']);
             need((bool)$me);
-            need($s['status'] === 'buka', $s['status'] === 'tutup' ? 'bl.galat.segmen_ditutup' : 'bl.galat.segmen_belum', 400);
+            // segmen yang sudah ditutup Fasilitator tetap dapat diselesaikan peserta sampai kegiatan diarsipkan
+            need($k['status'] !== 'arsip', 'bl.galat.arsip', 400);
+            need(bl_seg_bisa_diisi($k, $s), 'bl.galat.segmen_belum', 400);
             need(!qval('SELECT COUNT(*) FROM bl_selesai WHERE peserta_id = ? AND seg_id = ?', [$me['id'], $s['id']]), 'bl.galat.sudah_selesai', 400);
+            $myDone = []; foreach (qall('SELECT seg_id FROM bl_selesai WHERE peserta_id = ?', [$me['id']]) as $f) $myDone[(int)$f['seg_id']] = 1;
+            need(!bl_pre_terlambat($s, bl_segs((int)$k['id']), $myDone), 'bl.galat.pretest_setelah_post', 400);
             if ($a === 'bl_jawab') {
                 need(in_array($s['jenis'], ['pretest', 'posttest'], true), 'galat.data_tidak_valid', 400);
                 $soalId = int_in($d, 'soalId'); $pil = strtolower((string)($d['v'] ?? ''));
