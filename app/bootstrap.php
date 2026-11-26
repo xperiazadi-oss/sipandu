@@ -2,7 +2,7 @@
 /* Si PANDU – inti: konfigurasi, basis data, sesi, keamanan, utilitas */
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 
-const SIPANDU_VERSION = '1.6.0';
+const SIPANDU_VERSION = '1.6.1';
 const SIPANDU_MIN_PHP = '8.1.0';
 
 function sp_config(): array
@@ -38,6 +38,29 @@ function bl_url(): string
     if (!empty($c['bl_url'])) return (string)$c['bl_url'];
     $host = (string)preg_replace('/^www\./', '', strtolower((string)($_SERVER['HTTP_HOST'] ?? '')));
     return 'https://belajar.' . $host . '/';
+}
+
+/** Nama host subdomain pembelajaran yang sedang dipakai (untuk teks dokumen) */
+function bl_host(): string
+{
+    if (sp_app() === 'bl') return (string)preg_replace(['/^www\./', '/:\d+$/'], '', strtolower((string)($_SERVER['HTTP_HOST'] ?? '')));
+    return (string)parse_url(bl_url(), PHP_URL_HOST);
+}
+
+/**
+ * Pindah domain: bila konfigurasi berisi 'pindah_dari' dan 'pindah_ke', permintaan GET/HEAD ke domain lama
+ * (termasuk subdomainnya, mis. belajar.) dialihkan permanen (301) ke domain baru dengan jalur yang sama.
+ */
+function sp_domain_redirect(): void
+{
+    if (PHP_SAPI === 'cli') return;
+    $c = sp_config(); $from = strtolower((string)($c['pindah_dari'] ?? '')); $to = strtolower((string)($c['pindah_ke'] ?? ''));
+    if ($from === '' || $to === '' || !in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) return;
+    $host = (string)preg_replace('/:\d+$/', '', strtolower((string)($_SERVER['HTTP_HOST'] ?? '')));
+    if ($host !== $from && !str_ends_with($host, '.' . $from)) return;
+    $new = substr($host, 0, strlen($host) - strlen($from)) . $to;
+    header('Location: https://' . $new . ($_SERVER['REQUEST_URI'] ?? '/'), true, 301);
+    exit;
 }
 
 function sp_teks(): array
@@ -286,3 +309,5 @@ function data_dir(string $sub = ''): string
     if (!is_dir($d)) @mkdir($d, 0750, true);
     return $d;
 }
+
+sp_domain_redirect();

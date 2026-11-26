@@ -56,7 +56,7 @@ function bl_lap_kategori($v): string
 /* ---------- Mekanisme: paragraf pengenalan Si PANDU + rundown dari jadwal ---------- */
 function bl_lap_mekanisme_auto(array $k): string
 {
-    $lines = [t('lap.mek_intro'), t('lap.mek_rundown')];
+    $lines = [t('lap.mek_intro', ['alamat' => bl_host()]), t('lap.mek_rundown')];
     $i = 0;
     foreach (bl_segs((int)$k['id']) as $s) {
         $i++;
