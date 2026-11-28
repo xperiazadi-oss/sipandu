@@ -409,6 +409,24 @@ return [
     ],
     // subdomain pembelajaran: halaman masuk, buat akun, menu, pengguna
     // Laporan Kegiatan (Fasilitator, subdomain pembelajaran)
+    // Penerbitan dokumen yang dapat diverifikasi di VeriDoc (disetujui pengguna 28 Nov 2026)
+    'dok' => [
+        'terbitkan' => 'Terbitkan', 'sifat_dokumen' => 'Sifat dokumen', 'terkendali' => 'Terkendali', 'tidak_terkendali' => 'Tidak terkendali',
+        'masa_berlaku' => 'Masa berlaku', 'sampai_tanggal' => 'Sampai tanggal', 'hingga_dicabut' => 'Hingga pemberlakuan dicabut oleh penerbit',
+        'dikirim' => 'Laporan dikirim kepada {pembina} untuk disahkan.',
+        'sahkan' => 'Sahkan', 'cabut' => 'Cabut', 'ganti' => 'Ganti', 'alasan' => 'Alasan (minimal 10 karakter)',
+        'disahkan' => 'Laporan sudah disahkan dan terdaftar di VeriDoc.', 'dicabut_ok' => 'Dokumen dicabut.',
+        'draf_pengganti' => 'Draf pengganti dibuat; dokumen lama tetap berlaku sampai pengganti disahkan.',
+        'kembalikan' => 'Kembalikan', 'catatan_fasil' => 'Catatan untuk Fasilitator', 'dikembalikan' => 'Laporan dikembalikan kepada Fasilitator.',
+        'st' => ['draf' => 'Draf', 'menunggu' => 'Menunggu pengesahan', 'sah' => 'Sah – berlaku', 'dicabut' => 'Dicabut', 'digantikan' => 'Digantikan', 'habis' => 'Masa berlaku habis'],
+        'jenis_dokumen' => 'Jenis dokumen', 'sifat' => 'Sifat', 'rahasia' => 'Rahasia', 'umum' => 'Umum', 'format_nomor' => 'Format nomor',
+        'format_ket' => '{urut} = nomor urut, {tahun} = tahun terbit', 'nomor_berikutnya' => 'Nomor berikutnya', 'diterbitkan_oleh' => 'Diterbitkan oleh',
+        // pada dokumen tercetak
+        'nomor' => 'Nomor', 'kode_verifikasi' => 'Kode verifikasi', 'kode_akses' => 'Kode akses',
+        'label_sifat' => ['rahasia_terkendali' => 'RAHASIA – TERKENDALI', 'rahasia_tidak' => 'RAHASIA – TIDAK TERKENDALI', 'umum_terkendali' => 'UMUM – TERKENDALI', 'umum_tidak' => 'UMUM – TIDAK TERKENDALI'],
+        'draf_cap' => 'DRAF – BELUM SAH',
+        'qr_ket' => 'Verifikasi: veridoc.my.id · Kode verifikasi: {kode}', 'qr_akses' => ' · Kode akses: {akses}',
+    ],
     'lap' => [
         'judul_dok' => 'LAPORAN KEGIATAN',
         'hari' => ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'],

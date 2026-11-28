@@ -688,38 +688,72 @@ function bl_api(string $a, array $d, array $u)
 
         /* --- Fasilitator: Laporan Kegiatan --- */
         case 'bl_lap_list':
-            need($role === 'fasil');
-            return array_values(array_map(function ($k) use ($u) {
-                $r = q1('SELECT updated_at FROM bl_laporan WHERE keg_id = ? AND user_id = ?', [$k['id'], $u['id']]);
-                return ['id' => (int)$k['id'], 'title' => $k['judul'], 'start' => (string)$k['tgl_mulai'], 'end' => (string)$k['tgl_selesai'], 'status' => $k['status'], 'updated' => $r['updated_at'] ?? null];
-            }, array_filter(qall('SELECT * FROM bl_keg ORDER BY id DESC'), fn($k) => bl_lap_can($u, $k))));
+            bl_veridoc_antrean();
+            if ($role === 'fasil') {
+                return array_values(array_map(function ($k) use ($u) {
+                    $r = q1('SELECT * FROM bl_laporan WHERE keg_id = ? AND user_id = ?', [$k['id'], $u['id']]);
+                    return ['id' => (int)$k['id'], 'title' => $k['judul'], 'start' => (string)$k['tgl_mulai'], 'end' => (string)$k['tgl_selesai'], 'status' => $k['status'], 'updated' => $r['updated_at'] ?? null,
+                        'lapStatus' => bl_lap_status_tampil($r)];
+                }, array_filter(qall('SELECT * FROM bl_keg ORDER BY id DESC'), fn($k) => bl_lap_can($u, $k))));
+            }
+            // Pembina (laporan yang diajukan kepadanya / yang ia sahkan) dan Admin (semua yang sudah diajukan atau terbit)
+            need($role === 'pembina' || $isA);
+            $out = [];
+            foreach (qall('SELECT l.*, k.judul, k.tgl_mulai, k.tgl_selesai, k.status AS keg_status, u.nama AS fasil_nama FROM bl_laporan l JOIN bl_keg k ON k.id = l.keg_id LEFT JOIN bl_users u ON u.id = l.user_id ORDER BY l.id DESC') as $r) {
+                $k = bl_keg((int)$r['keg_id']);
+                if (!bl_lap_hak($u, $r, $k)['lihat'] || ($isA && $r['status'] === 'draf' && !bl_dok_terakhir((int)$r['id']))) continue;
+                $out[] = ['lapId' => (int)$r['id'], 'title' => $r['judul'], 'start' => (string)$r['tgl_mulai'], 'end' => (string)$r['tgl_selesai'], 'fasil' => (string)$r['fasil_nama'],
+                    'updated' => $r['updated_at'], 'lapStatus' => bl_lap_status_tampil($r)];
+            }
+            return $out;
         case 'bl_lap_get':
         case 'bl_lap_save':
         case 'bl_lap_mek':
         case 'bl_lap_tor':
-            $k = $kegOf(int_in($d, 'kegId'));
-            need(bl_lap_can($u, $k));
-            $r = bl_lap_row($u, $k);
+        case 'bl_lap_terbit':
+        case 'bl_lap_sahkan':
+        case 'bl_lap_kembali':
+        case 'bl_lap_cabut':
+        case 'bl_lap_ganti':
+            if (!empty($d['lapId'])) {
+                $r = bl_lap_by_id(int_in($d, 'lapId'));
+                need((bool)$r, 'bl.galat.tidak_ada', 404);
+                $k = $kegOf((int)$r['keg_id']);
+            } else {
+                $k = $kegOf(int_in($d, 'kegId'));
+                need(bl_lap_can($u, $k));
+                $r = bl_lap_row($u, $k);
+            }
+            $hak = bl_lap_hak($u, $r, $k);
+            need($hak['lihat']);
             if ($a === 'bl_lap_save') {
+                need($hak['sunting']);
                 $map = ['pelaksana' => ['pelaksana', 200], 'pendahuluan' => ['pendahuluan', 20000], 'mekanisme' => ['mekanisme', 20000], 'kendala' => ['kendala', 20000], 'kesimpulan' => ['kesimpulan', 20000],
-                    'rekomendasi' => ['rekomendasi', 20000], 'ttdTempat' => ['ttd_tempat', 100], 'ttdTanggal' => ['ttd_tanggal', 10], 'pembinaId' => ['pembina_id', 0]];
+                    'rekomendasi' => ['rekomendasi', 20000], 'ttdTempat' => ['ttd_tempat', 100], 'ttdTanggal' => ['ttd_tanggal', 10], 'pembinaId' => ['pembina_id', 0],
+                    'kendali' => ['kendali', 0], 'berlakuMode' => ['berlaku_mode', 0], 'berlakuSampai' => ['berlaku_sampai', 10]];
                 $kk = (string)($d['k'] ?? '');
                 need(isset($map[$kk]), 'galat.data_tidak_valid', 400);
                 [$col, $max] = $map[$kk];
                 if ($kk === 'pembinaId') {
                     $v = (int)($d['v'] ?? 0) ?: null;
                     need($v === null || qval("SELECT role FROM bl_users WHERE id = ?", [$v]) === 'pembina', 'galat.data_tidak_valid', 400);
-                } elseif ($kk === 'ttdTanggal') {
+                } elseif ($kk === 'kendali' || $kk === 'berlakuMode') {
+                    $v = (string)($d['v'] ?? '') ?: null;
+                    need($v === null || in_array($v, $kk === 'kendali' ? ['terkendali', 'tidak'] : ['tanggal', 'cabut'], true), 'galat.data_tidak_valid', 400);
+                } elseif ($kk === 'ttdTanggal' || $kk === 'berlakuSampai') {
                     $v = trim((string)($d['v'] ?? ''));
                     need($v === '' || (bool)DateTimeImmutable::createFromFormat('Y-m-d', $v), 'galat.data_tidak_valid', 400);
+                    if ($v === '') $v = null;
                 } else {
                     $v = trim(str_replace("\r\n", "\n", (string)($d['v'] ?? '')));
                     need(mb_strlen($v) <= $max, 'lap.galat.terlalu_panjang', 400);
                 }
                 q("UPDATE bl_laporan SET $col = ?, updated_at = ? WHERE id = ?", [$v, now_str(), $r['id']]);
             } elseif ($a === 'bl_lap_mek') {
+                need($hak['sunting']);
                 q('UPDATE bl_laporan SET mekanisme = ?, updated_at = ? WHERE id = ?', [bl_lap_mekanisme_auto($k), now_str(), $r['id']]);
             } elseif ($a === 'bl_lap_tor') {
+                need($hak['sunting']);
                 need(isset($_FILES['tor']) && is_uploaded_file($_FILES['tor']['tmp_name']), 'galat.unggah', 400);
                 need($_FILES['tor']['size'] <= BL_TOR_MAX, 'lap.galat.tor_besar', 400);
                 $tmp = $_FILES['tor']['tmp_name'];
@@ -732,9 +766,54 @@ function bl_api(string $a, array $d, array $u)
                 $txt = bl_tor_pendahuluan(data_dir('tor') . '/' . $file);
                 q('UPDATE bl_laporan SET tor = ?, updated_at = ?' . ($txt !== '' ? ', pendahuluan = ?' : '') . ' WHERE id = ?', $txt !== '' ? [$file, now_str(), $txt, $r['id']] : [$file, now_str(), $r['id']]);
                 audit('bl_lap_tor', ['keg' => $k['id'], 'found' => $txt !== '']);
-                return ['found' => $txt !== '', 'lap' => bl_lap_data($u, $k)];
+                return ['found' => $txt !== '', 'lap' => bl_lap_out($u, bl_lap_by_id((int)$r['id']), $k)];
+            } elseif ($a === 'bl_lap_terbit') {
+                // Fasilitator (atau Admin untuk draf pengganti setelah arsip) mengajukan laporan kepada Pembina terpilih
+                need($hak['sunting']);
+                need($r['pembina_id'] && qval("SELECT COUNT(*) FROM bl_users WHERE id = ? AND role = 'pembina' AND aktif = 1", [$r['pembina_id']]), 'galat.data_tidak_valid', 400);
+                need(in_array($r['kendali'], ['terkendali', 'tidak'], true) && in_array($r['berlaku_mode'], ['tanggal', 'cabut'], true), 'galat.data_tidak_valid', 400);
+                need($r['berlaku_mode'] === 'cabut' || ($r['berlaku_sampai'] && $r['berlaku_sampai'] >= bl_hari_ini()), 'galat.data_tidak_valid', 400);
+                q("UPDATE bl_laporan SET status = 'menunggu', diajukan_at = ?, catatan_kembali = NULL, updated_at = ? WHERE id = ?", [now_str(), now_str(), $r['id']]);
+                audit('bl_lap_terbit', ['lap' => (int)$r['id'], 'pembina' => (int)$r['pembina_id']]);
+            } elseif ($a === 'bl_lap_kembali') {
+                need($hak['sahkan']);
+                $cat = trim(str_in($d, 'catatan', 2000));
+                need($cat !== '', 'galat.data_tidak_valid', 400);
+                q("UPDATE bl_laporan SET status = 'draf', catatan_kembali = ?, updated_at = ? WHERE id = ?", [$cat, now_str(), $r['id']]);
+                audit('bl_lap_kembali', ['lap' => (int)$r['id'], 'catatan' => $cat]);
+            } elseif ($a === 'bl_lap_sahkan') {
+                need($hak['sahkan']);
+                // masa berlaku yang sudah lewat tidak boleh disahkan
+                need($r['berlaku_mode'] === 'cabut' || ($r['berlaku_sampai'] && $r['berlaku_sampai'] >= bl_hari_ini()), 'galat.data_tidak_valid', 400);
+                bl_lap_sahkan($u, $r, $k);
+            } elseif ($a === 'bl_lap_cabut' || $a === 'bl_lap_ganti') {
+                need($hak['ubahDok']);
+                $why = trim(str_in($d, 'alasan', 1000));
+                need(mb_strlen($why) >= BL_ALASAN_DOK_MIN, 'galat.data_tidak_valid', 400);
+                $dok = bl_dok_terakhir((int)$r['id']);
+                if ($a === 'bl_lap_cabut') bl_dok_cabut($u, $dok, $why);
+                else {
+                    // draf pengganti: dokumen lama tetap berlaku sampai pengganti disahkan
+                    q("UPDATE bl_laporan SET status = 'draf', ganti_dok_id = ?, catatan_kembali = NULL, updated_at = ? WHERE id = ?", [$dok['id'], now_str(), $r['id']]);
+                    audit('bl_dok_ganti', ['dok' => (int)$dok['id'], 'nomor' => $dok['nomor'], 'alasan' => $why]);
+                }
             }
-            return bl_lap_data($u, $k);
+            return bl_lap_out($u, bl_lap_by_id((int)$r['id']), $k);
+        case 'bl_jenis_get':
+            need($isA);
+            return bl_jenis_out(bl_jenis(BL_JENIS_LAPORAN));
+        case 'bl_jenis_save':
+            need($isA);
+            $j = bl_jenis(BL_JENIS_LAPORAN);
+            $kk = (string)($d['k'] ?? '');
+            if ($kk === 'sifat') { $v = (string)($d['v'] ?? ''); need(in_array($v, ['rahasia', 'umum'], true), 'galat.data_tidak_valid', 400); $col = 'sifat'; }
+            elseif ($kk === 'format') { $v = trim(str_in($d, 'v', 120)); need(str_contains($v, '{urut}'), 'galat.data_tidak_valid', 400); $col = 'format'; }
+            elseif ($kk === 'next') { $v = (int)($d['v'] ?? 0); need($v >= 1, 'galat.data_tidak_valid', 400); $col = 'next_no'; }
+            elseif ($kk === 'penerbit') { $v = trim(str_in($d, 'v', 200)); need($v !== '', 'galat.data_tidak_valid', 400); $col = 'penerbit'; }
+            else fail('galat.data_tidak_valid', [], 400);
+            q("UPDATE bl_jenis_dok SET $col = ?" . ($kk === 'next' ? ', tahun = ?' : '') . ' WHERE id = ?', $kk === 'next' ? [$v, (int)date('Y'), $j['id']] : [$v, $j['id']]);
+            audit('bl_jenis_save', ['k' => $kk, 'v' => $v]);
+            return bl_jenis_out(bl_jenis(BL_JENIS_LAPORAN));
 
         /* --- Admin: akun subdomain --- */
         case 'bl_user_add':

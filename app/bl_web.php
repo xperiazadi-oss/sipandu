@@ -4,6 +4,7 @@
 // Tanpa strict_types: nilai dari basis data selalu berupa string dan dikonversi otomatis oleh PHP.
 require_once __DIR__ . '/belajar.php';
 require_once __DIR__ . '/bl_laporan.php';
+require_once __DIR__ . '/bl_dok.php';
 
 /** Batas pembuatan akun per alamat IP (perlindungan dari pengisian otomatis) */
 const BL_DAFTAR_PER_JAM = 5;
@@ -222,14 +223,17 @@ function bl_page_berkas(): void
             elseif ($k && ($me = bl_me_peserta($u, (int)$k['id']))) $ok = (bool)qval("SELECT COUNT(*) FROM bl_selesai f JOIN bl_seg s ON s.id = f.seg_id WHERE f.peserta_id = ? AND s.keg_id = ? AND s.jenis = 'pretest'", [$me['id'], $k['id']]);
             if ($ok) { $path = data_dir('materi') . '/' . basename($m['file']); $name = preg_replace('/[^A-Za-z0-9 ._-]/', '', $m['judul']) . '.pdf'; }
         } elseif ($j === 'lap') {
-            // Laporan Kegiatan: hanya Fasilitator yang ditugaskan; f=pdf|docx
-            $k = bl_keg($id);
-            if ($k && bl_lap_can($u, $k)) {
-                $L = bl_lap_data($u, $k);
+            // Laporan Kegiatan: Fasilitator pemilik (id = kegiatan), atau lap = id laporan bagi Pembina/Admin yang berhak; f=pdf|docx
+            $lapId = (int)($_GET['lap'] ?? 0);
+            $r = $lapId ? bl_lap_by_id($lapId) : null;
+            $k = $r ? bl_keg((int)$r['keg_id']) : bl_keg($id);
+            if (!$r && $k && bl_lap_can($u, $k)) $r = bl_lap_row($u, $k);
+            if ($k && $r && bl_lap_hak($u, $r, $k)['lihat']) {
+                $L = bl_lap_cetak($r, $k);
                 $safe = trim(preg_replace('/[^A-Za-z0-9 _-]/', '', $k['judul'])) ?: 'kegiatan';
                 $docx = ($_GET['f'] ?? '') === 'docx';
                 $bin = $docx ? bl_lap_docx($L) : bl_lap_pdf($L);
-                audit('bl_lap_unduh', ['keg' => $k['id'], 'f' => $docx ? 'docx' : 'pdf']);
+                audit('bl_lap_unduh', ['keg' => $k['id'], 'lap' => (int)$r['id'], 'f' => $docx ? 'docx' : 'pdf', 'draf' => !empty($L['draf'])]);
                 header('Content-Type: ' . ($docx ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf'));
                 header('Content-Length: ' . strlen($bin));
                 header('Cache-Control: private, no-store');

@@ -115,10 +115,10 @@ function bl_lap_hasil(array $k): array
     ];
 }
 
-/** Semua isi laporan (untuk layar, PDF, dan Word) */
-function bl_lap_data(array $u, array $k): array
+/** Semua isi laporan (untuk layar, PDF, dan Word); $r = baris bl_laporan */
+function bl_lap_data(array $r, array $k): array
 {
-    $r = bl_lap_row($u, $k);
+    $u = q1('SELECT * FROM bl_users WHERE id = ?', [$r['user_id']]) ?: ['nama' => ''];
     $pemb = $r['pembina_id'] ? q1("SELECT nama FROM bl_users WHERE id = ? AND role = 'pembina'", [$r['pembina_id']]) : null;
     return [
         'kegId' => (int)$k['id'], 'title' => $k['judul'],
@@ -256,6 +256,16 @@ final class BlPdf
         $fn = ['R' => 'F1', 'B' => 'F2', 'I' => 'F3', 'BI' => 'F4'][$f];
         $this->buf .= sprintf("BT %s rg /%s %.2F Tf %.3F Tw %.2F %.2F Td (%s) Tj ET\n", $gray ? "$gray $gray $gray" : '0 0 0', $fn, $size, $tw, $x, self::PH - $y, self::esc($s));
     }
+    /** Kode QR sebagai kotak-kotak vektor; $sz = sisi (pt), termasuk zona tenang 4 modul */
+    public function qr(SpQr $q, float $x, float $y, float $sz): void
+    {
+        $mod = $sz / ($q->size + 8); $ops = "0 0 0 rg\n";
+        for ($r = 0; $r < $q->size; $r++) for ($c = 0; $c < $q->size; $c++)
+            if ($q->m[$r][$c]) $ops .= sprintf("%.3F %.3F %.3F %.3F re\n", $x + ($c + 4) * $mod, self::PH - ($y + ($r + 5) * $mod), $mod + 0.01, $mod + 0.01);
+        $this->buf .= $ops . "f\n";
+    }
+    /** Teks miring abu-abu di tengah setiap halaman (cap DRAF) */
+    public string $stamp = '';
     public function line(float $x1, float $y1, float $x2, float $y2, float $w = 0.5): void
     {
         $this->buf .= sprintf("%.2F w %.2F %.2F m %.2F %.2F l S\n", $w, $x1, self::PH - $y1, $x2, self::PH - $y2);
@@ -363,6 +373,13 @@ final class BlPdf
         $kids = [];
         $np = count($this->pages);
         foreach ($this->pages as $pi => $content) {
+            if ($this->stamp !== '') {
+                // cap miring di tengah halaman, di belakang isi
+                $st = self::enc($this->stamp); $sz = 46; $wd = $this->width($st, 'B', $sz);
+                $cos = cos(deg2rad(35)); $sin = sin(deg2rad(35));
+                $cx = self::PW / 2 - $wd / 2 * $cos; $cy = self::PH / 2 - $wd / 2 * $sin;
+                $content = sprintf("BT 0.82 0.82 0.82 rg /F2 %d Tf %.4F %.4F %.4F %.4F %.2F %.2F Tm (%s) Tj ET\n", $sz, $cos, $sin, -$sin, $cos, $cx, $cy, self::esc($st)) . $content;
+            }
             if ($this->footer !== '') {
                 $ft = self::enc($this->footer);
                 $content .= sprintf("BT 0.45 0.45 0.45 rg /F3 7.5 Tf %.2F %.2F Td (%s) Tj ET\n", self::PW - $this->mr - $this->width($ft, 'I', 7.5), 22, self::esc($ft));
@@ -393,10 +410,16 @@ function bl_lap_pdf(array $L): string
 {
     $p = new BlPdf();
     $p->footer = t('app.hak_cipta');
+    if (!empty($L['draf'])) $p->stamp = t('dok.draf_cap');
     $p->addPage();
     $x = $p->ml; $w = BlPdf::PW - $p->ml - $p->mr; $fs = 11;
     $kop = bl_lap_kop_jpeg();
     if ($kop) $p->y += $p->image($kop, $x, $p->y, $w) + 10;
+    if (!empty($L['dok'])) {
+        // sifat dokumen di kanan atas halaman 1
+        $sf = BlPdf::enc(bl_dok_label_sifat($L['dok'])); $sw = $p->width($sf, 'B', 10);
+        $p->y += 10; $p->text($x + $w - $sw, $p->y, $sf, 'B', 10);
+    }
     $p->y += 14;
     $title = BlPdf::enc(t('lap.judul_dok'));
     $tw = $p->width($title, 'B', 12.5);
@@ -465,6 +488,14 @@ function bl_lap_pdf(array $L): string
     $nf = BlPdf::enc($t['fasil']); $np = BlPdf::enc($t['pembina'] !== '' ? $t['pembina'] : str_repeat('.', 40));
     $p->text($lx, $p->y, $nf, 'B', $fs); $p->line($lx, $p->y + 2, $lx + $p->width($nf, 'B', $fs), $p->y + 2, 0.5);
     $p->text($rx, $p->y, $np, 'B', $fs); if ($t['pembina'] !== '') $p->line($rx, $p->y + 2, $rx + $p->width($np, 'B', $fs), $p->y + 2, 0.5);
+    if (!empty($L['dok'])) {
+        // QR verifikasi VeriDoc di bawah tanda tangan
+        $qs = 78;
+        $p->ensure($qs + 20);
+        $p->y += 18;
+        $p->qr(SpQr::encode(bl_dok_qr_url($L['dok'])), $x, $p->y, $qs);
+        $p->para(bl_dok_qr_teks($L['dok']), $x + $qs + 8, $w - $qs - 8, 'R', 9, 0, false);
+    }
     return $p->output();
 }
 
@@ -518,6 +549,7 @@ function bl_lap_docx(array $L): string
             . '<pic:nvPicPr><pic:cNvPr id="1" name="kop.jpg"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdKop"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
             . '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $cx . '" cy="' . $cy . '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
     }
+    if (!empty($L['dok'])) $x .= '<w:p><w:pPr><w:spacing w:after="0"/><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:t>' . bl_docx_x(bl_dok_label_sifat($L['dok'])) . '</w:t></w:r></w:p>';
     $x .= '<w:p><w:pPr><w:spacing w:before="200" w:after="200"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:u w:val="single"/><w:sz w:val="25"/></w:rPr><w:t>' . bl_docx_x(t('lap.judul_dok')) . '</w:t></w:r></w:p>';
     $rows = '';
     foreach ($L['ident'] as [$lab, $val]) $rows .= '<w:tr><w:tc><w:tcPr><w:tcW w:w="2700" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:after="40"/></w:pPr>' . bl_docx_run($lab, true) . '</w:p></w:tc>'
@@ -555,20 +587,39 @@ function bl_lap_docx(array $L): string
         . $cell([$pl(trim($t['tempat'] . ', ' . $t['tanggal'], ', ')), $pl(t('lap.ttd_fasil')), $gap, $gap, $gap, $gap, $pl($t['fasil'], true, true)], $half)
         . $cell([$pl(t('lap.mengetahui')), $pl(t('lap.ttd_pembina')), $gap, $gap, $gap, $gap, $pl($t['pembina'] !== '' ? $t['pembina'] : str_repeat('.', 40), true, $t['pembina'] !== '')], $W - $half)
         . '</w:tr></w:tbl>';
+    $qrPng = null;
+    if (!empty($L['dok'])) {
+        // QR verifikasi VeriDoc di bawah tanda tangan (gambar 2,6 cm) + keterangan
+        $qrPng = SpQr::encode(bl_dok_qr_url($L['dok']))->png(8);
+        $e = 936000;
+        $x .= '<w:tbl><w:tblPr><w:tblW w:w="' . $W . '" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="1700"/><w:gridCol w:w="' . ($W - 1700) . '"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>'
+            . '<w:tc><w:tcPr><w:tcW w:w="1700" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="200" w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' . $e . '" cy="' . $e . '"/><wp:docPr id="2" name="QR"/>'
+            . '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            . '<pic:nvPicPr><pic:cNvPr id="2" name="qr.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdQr"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            . '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $e . '" cy="' . $e . '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:tc>'
+            . '<w:tc><w:tcPr><w:tcW w:w="' . ($W - 1700) . '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' . bl_docx_p(bl_docx_run(bl_dok_qr_teks($L['dok']), false, false, 18), 'left', 0, 0, 0, 0) . '</w:tc></w:tr></w:tbl>';
+    }
+    $hdrDraf = !empty($L['draf']);
     $doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>'
-        . $x . '<w:sectPr><w:footerReference w:type="default" r:id="rIdFtr"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="567" w:right="850" w:bottom="1134" w:left="850" w:header="340" w:footer="340" w:gutter="0"/></w:sectPr></w:body></w:document>';
+        . $x . '<w:sectPr>' . ($hdrDraf ? '<w:headerReference w:type="default" r:id="rIdHdr"/>' : '') . '<w:footerReference w:type="default" r:id="rIdFtr"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="567" w:right="850" w:bottom="1134" w:left="850" w:header="340" w:footer="340" w:gutter="0"/></w:sectPr></w:body></w:document>';
     $ftr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="737373"/><w:sz w:val="15"/></w:rPr><w:t>' . bl_docx_x(t('app.hak_cipta')) . '</w:t></w:r></w:p></w:ftr>';
+    // cap DRAF di kepala setiap halaman
+    $hdr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="B42318"/><w:sz w:val="36"/></w:rPr><w:t>' . bl_docx_x(t('dok.draf_cap')) . '</w:t></w:r></w:p></w:hdr>';
     $styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="22"/><w:lang w:val="id-ID"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="60"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style></w:styles>';
     $tmp = tempnam(sys_get_temp_dir(), 'lap');
     $z = new ZipArchive();
     $z->open($tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE);
-    $z->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>');
+    $z->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' . ($hdrDraf ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : '') . '</Types>');
     $z->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
-    $z->addFromString('word/_rels/document.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSty" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdFtr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>' . ($kop ? '<Relationship Id="rIdKop" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/kop.jpg"/>' : '') . '</Relationships>');
+    $z->addFromString('word/_rels/document.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSty" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdFtr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>' . ($kop ? '<Relationship Id="rIdKop" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/kop.jpg"/>' : '')
+        . ($qrPng ? '<Relationship Id="rIdQr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr.png"/>' : '')
+        . ($hdrDraf ? '<Relationship Id="rIdHdr" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>' : '') . '</Relationships>');
     $z->addFromString('word/document.xml', $doc);
     $z->addFromString('word/styles.xml', $styles);
     $z->addFromString('word/footer1.xml', $ftr);
     if ($kop) $z->addFromString('word/media/kop.jpg', $kop['data']);
+    if ($qrPng) $z->addFromString('word/media/qr.png', $qrPng);
+    if ($hdrDraf) $z->addFromString('word/header1.xml', $hdr);
     $z->close();
     $bin = (string)file_get_contents($tmp);
     @unlink($tmp);

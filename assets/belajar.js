@@ -43,7 +43,8 @@
     if (arg === 'pengguna') return penggunaPage();
     if (arg === 'riwayat') return riwayatPage();
     if (arg === 'audit') return auditPage();
-    if (arg === 'laporan' || /^laporan-\d+$/.test(arg)) return lapPage(arg);
+    if (arg === 'laporan' || /^laporan-l?\d+$/.test(arg)) return lapPage(arg);
+    if (arg === 'jenis') return jenisPage();
     var p = arg.split('-'), id = p[0];
     if (!/^\d+$/.test(id)) return H.denied();
     var d = cache[id];
@@ -293,30 +294,44 @@
   }
 
   /* ---------- Fasilitator: Laporan Kegiatan ---------- */
+  var DOK_CHIP = { draf: 'muted', menunggu: 'warn', sah: 'ok', dicabut: 'bad', digantikan: 'warn', habis: 'bad' };
+  function dokChip(st) { return H.chip(t('dok.st.' + st), DOK_CHIP[st] || 'muted'); }
   function lapPage(arg) {
-    if (me().role !== 'fasil') return H.denied();
-    var m = /^laporan-(\d+)$/.exec(arg);
+    var role = me().role;
+    if (role !== 'fasil' && role !== 'pembina' && role !== 'admin') return H.denied();
+    var m = /^laporan-(l?)(\d+)$/.exec(arg);
     if (!m) {
       var list = ui.blLapList;
       if (!list) { C.api('bl_lap_list', {}).then(function (x) { ui.blLapList = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
-      var h = '<h2>' + esc(t('blapp.menu_laporan')) + '</h2><p class="muted">' + esc(t('lap.pengantar')) + '</p>';
-      if (!list.length) return h + '<p class="muted">' + esc(t('lap.belum_ada_kegiatan')) + '</p>';
-      return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.judul')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.status')) + '</th><th>' + esc(t('lap.terakhir_disunting')) + '</th></tr>' + list.map(function (k) {
-        return '<tr><td><a href="#bl-laporan-' + k.id + '"><b>' + esc(k.title) + '</b></a></td><td class="small">' + esc([k.start, k.end].filter(Boolean).join(' s.d. ') || '–') + '</td><td>' + chipStatus('keg', k.status) + '</td><td class="small">' + esc(k.updated || '–') + '</td></tr>';
+      var h = '<h2>' + esc(t('blapp.menu_laporan')) + '</h2>' + (role === 'fasil' ? '<p class="muted">' + esc(t('lap.pengantar')) + '</p>' : '');
+      if (!list.length) return h + (role === 'fasil' ? '<p class="muted">' + esc(t('lap.belum_ada_kegiatan')) + '</p>' : '');
+      if (role === 'fasil') return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.judul')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.status')) + '</th><th>' + esc(t('lap.terakhir_disunting')) + '</th></tr>' + list.map(function (k) {
+        return '<tr><td><a href="#bl-laporan-' + k.id + '"><b>' + esc(k.title) + '</b></a> ' + dokChip(k.lapStatus) + '</td><td class="small">' + esc([k.start, k.end].filter(Boolean).join(' s.d. ') || '–') + '</td><td>' + chipStatus('keg', k.status) + '</td><td class="small">' + esc(k.updated || '–') + '</td></tr>';
+      }).join('') + '</table></div>';
+      return h + '<div class="tbl"><table><tr><th>' + esc(t('bl.judul')) + '</th><th>' + esc(t('lap.i_fasilitator')) + '</th><th>' + esc(t('bl.tanggal')) + '</th><th>' + esc(t('bl.status')) + '</th><th>' + esc(t('lap.terakhir_disunting')) + '</th></tr>' + list.map(function (k) {
+        return '<tr><td><a href="#bl-laporan-l' + k.lapId + '"><b>' + esc(k.title) + '</b></a></td><td>' + esc(k.fasil) + '</td><td class="small">' + esc([k.start, k.end].filter(Boolean).join(' s.d. ') || '–') + '</td><td>' + dokChip(k.lapStatus) + '</td><td class="small">' + esc(k.updated || '–') + '</td></tr>';
       }).join('') + '</table></div>';
     }
-    var id = m[1], L = (ui.blLap || {})[id];
-    if (!L) { C.api('bl_lap_get', { kegId: +id }).then(function (x) { ui.blLap = ui.blLap || {}; ui.blLap[id] = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
-    var f = L.f, hs = L.hasil;
-    var ta = function (k, rows, ph) { return '<textarea class="inp" rows="' + rows + '" data-lap="' + k + '" placeholder="' + esc(ph ? t(ph) : '') + '">' + esc(f[k]) + '</textarea>'; };
+    var key = m[1] + m[2], L = (ui.blLap || {})[key];
+    if (!L) { C.api('bl_lap_get', m[1] ? { lapId: +m[2] } : { kegId: +m[2] }).then(function (x) { ui.blLap = ui.blLap || {}; ui.blLap[key] = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
+    var f = L.f, hs = L.hasil, ed = L.hak.sunting, ro = ed ? '' : ' readonly disabled';
+    var ta = function (k, rows, ph) { return '<textarea class="inp" rows="' + rows + '" data-lap="' + k + '" placeholder="' + esc(ph ? t(ph) : '') + '"' + ro + '>' + esc(f[k]) + '</textarea>'; };
     var tbl = function (head, rows, numFrom) { return '<div class="tbl"><table><tr>' + head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr>' + rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + (i >= numFrom ? ' class="num"' : '') + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>'; };
-    var h = '<p><a href="#bl-laporan">← ' + esc(t('blapp.menu_laporan')) + '</a></p><h2>' + esc(L.title) + '</h2>';
-    h += '<div class="row" style="gap:8px;margin-bottom:12px"><a class="btn" href="berkas.php?j=lap&f=pdf&id=' + L.kegId + '">' + esc(t('lap.unduh_pdf')) + '</a><a class="btn o" href="berkas.php?j=lap&f=docx&id=' + L.kegId + '">' + esc(t('lap.unduh_word')) + '</a><span class="small muted">' + esc(t('lap.tersimpan_otomatis')) + '</span></div>';
-    h += '<div class="card"><h3>' + esc(t('lap.identitas')) + '</h3><div class="tbl"><table>' + L.ident.map(function (r, i) {
-      return '<tr><th style="width:200px">' + esc(r[0]) + '</th><td' + (i === 2 ? ' class="in"' : '') + '>' + (i === 2 ? '<input class="cell" data-lap="pelaksana" value="' + esc(f.pelaksana) + '">' : esc(r[1] || '–')) + '</td></tr>';
-    }).join('') + '</table></div><p class="small muted">' + esc(t('lap.identitas_ket')) + '</p></div>';
-    h += '<div class="card"><h3>' + esc(t('lap.sec_a')) + '</h3><div class="row" style="gap:8px;margin-bottom:8px"><label class="small">' + esc(t('lap.unggah_tor')) + ' <input type="file" id="blTor" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>' + (L.hasTor ? H.chip(t('lap.tor_ada'), 'ok') : '') + '</div><p class="small muted">' + esc(t('lap.tor_ket')) + '</p>' + ta('pendahuluan', 10) + '</div>';
-    h += '<div class="card"><div class="row"><h3 class="sp">' + esc(t('lap.sec_b')) + '</h3><button class="btn o s" data-act="blLapMek">' + esc(t('lap.susun_ulang')) + '</button></div><p class="small muted">' + esc(t('lap.mek_ket')) + '</p>' + ta('mekanisme', 14) + '</div>';
+    var dk = L.dokInfo, h = '<p><a href="#bl-laporan">← ' + esc(t('blapp.menu_laporan')) + '</a></p><div class="row"><h2 class="sp">' + esc(L.title) + '</h2>' + dokChip(L.tampil) + '</div>';
+    if (dk) h += '<p class="small">' + esc(t('dok.nomor')) + ': <b>' + esc(dk.nomor) + '</b> · ' + esc(t('dok.kode_verifikasi')) + ': <code>' + esc(dk.kode) + '</code>' + (dk.akses ? ' · ' + esc(t('dok.kode_akses')) + ': <code>' + esc(dk.akses) + '</code>' : '') + '</p>';
+    if (L.catatan && L.status === 'draf') h += '<div class="note warn"><b>' + esc(t('dok.catatan_fasil')) + ':</b> <span style="white-space:pre-line">' + esc(L.catatan) + '</span></div>';
+    h += '<div class="row" style="gap:8px;margin-bottom:12px"><a class="btn" href="berkas.php?j=lap&f=pdf&lap=' + L.lapId + '">' + esc(t('lap.unduh_pdf')) + '</a><a class="btn o" href="berkas.php?j=lap&f=docx&lap=' + L.lapId + '">' + esc(t('lap.unduh_word')) + '</a>' + (ed ? '<span class="small muted">' + esc(t('lap.tersimpan_otomatis')) + '</span>' : '') + '</div>';
+    // tindakan pengesahan / pencabutan / penggantian
+    var kendaliTeks = L.kendali ? t(L.kendali === 'tidak' ? 'dok.tidak_terkendali' : 'dok.terkendali') : '–';
+    var berlakuTeks = L.berlakuMode === 'cabut' ? t('dok.hingga_dicabut') : L.berlakuMode === 'tanggal' ? t('dok.sampai_tanggal') + ' ' + (L.berlakuSampai || '–') : '–';
+    if (L.hak.sahkan) h += '<div class="card"><h3>' + esc(t('dok.sahkan')) + '</h3><p class="small">' + esc(t('dok.sifat_dokumen')) + ': <b>' + esc(t('dok.' + L.sifat)) + ' – ' + esc(kendaliTeks) + '</b> · ' + esc(t('dok.masa_berlaku')) + ': <b>' + esc(berlakuTeks) + '</b></p><div class="row" style="gap:8px"><button class="btn" data-act="blLapSahkan">' + esc(t('dok.sahkan')) + '</button><button class="btn o" data-act="blLapKembali">' + esc(t('dok.kembalikan')) + '</button></div></div>';
+    if (L.hak.ubahDok) h += '<div class="card"><div class="row" style="gap:8px"><button class="btn o" data-act="blLapGanti">' + esc(t('dok.ganti')) + '</button><button class="btn d" data-act="blLapCabut">' + esc(t('dok.cabut')) + '</button></div></div>';
+    h += '<div class="card"><h3>' + esc(t('lap.identitas')) + '</h3><div class="tbl"><table>' + L.ident.map(function (r) {
+      var isP = r[0] === t('lap.i_pelaksana');
+      return '<tr><th style="width:200px">' + esc(r[0]) + '</th><td' + (isP && ed ? ' class="in"' : '') + '>' + (isP && ed ? '<input class="cell" data-lap="pelaksana" value="' + esc(f.pelaksana) + '">' : esc(r[1] || '–')) + '</td></tr>';
+    }).join('') + '</table></div>' + (ed ? '<p class="small muted">' + esc(t('lap.identitas_ket')) + '</p>' : '') + '</div>';
+    h += '<div class="card"><h3>' + esc(t('lap.sec_a')) + '</h3>' + (ed ? '<div class="row" style="gap:8px;margin-bottom:8px"><label class="small">' + esc(t('lap.unggah_tor')) + ' <input type="file" id="blTor" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>' + (L.hasTor ? H.chip(t('lap.tor_ada'), 'ok') : '') + '</div><p class="small muted">' + esc(t('lap.tor_ket')) + '</p>' : '') + ta('pendahuluan', 10) + '</div>';
+    h += '<div class="card"><div class="row"><h3 class="sp">' + esc(t('lap.sec_b')) + '</h3>' + (ed ? '<button class="btn o s" data-act="blLapMek">' + esc(t('lap.susun_ulang')) + '</button>' : '') + '</div>' + (ed ? '<p class="small muted">' + esc(t('lap.mek_ket')) + '</p>' : '') + ta('mekanisme', 14) + '</div>';
     h += '<div class="card"><h3>' + esc(t('lap.sec_c')) + '</h3><p class="small muted">' + esc(t('lap.hasil_ket')) + '</p><p>' + esc(hs.pembuka) + '</p><ol style="padding-left:20px">' +
       '<li><p>' + esc(hs.p1) + '</p><p class="small"><i>' + esc(t('lap.menurut_instansi')) + '</i></p><ul class="small">' + hs.inst.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul><p class="small"><i>' + esc(t('lap.menurut_profesi')) + '</i></p><ul class="small">' + hs.prof.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></li>' +
       '<li><p>' + esc(hs.p2) + '</p>' + tbl([t('lap.t_komponen'), t('lap.t_n'), t('lap.t_rata'), t('lap.t_min'), t('lap.t_max')], hs.stat, 1) + '<p>' + esc(hs.p2b) + '</p>' +
@@ -325,11 +340,43 @@
     h += '<div class="card"><h3>' + esc(t('lap.sec_d')) + '</h3>' + ta('kendala', 6, 'lap.ph_butir') + '</div>';
     h += '<div class="card"><h3>' + esc(t('lap.sec_e')) + '</h3>' + ta('kesimpulan', 6, 'lap.ph_butir') + '</div>';
     h += '<div class="card"><h3>' + esc(t('lap.sec_f')) + '</h3>' + ta('rekomendasi', 6, 'lap.ph_butir') + '</div>';
-    h += '<div class="card"><h3>' + esc(t('lap.tanda_tangan')) + '</h3><div class="form"><label class="f">' + esc(t('lap.ttd_tempat')) + '<input class="inp" data-lap="ttdTempat" value="' + esc(f.ttdTempat) + '"></label><label class="f">' + esc(t('lap.ttd_tanggal')) + '<input class="inp" type="date" data-lap="ttdTanggal" value="' + esc(f.ttdTanggal) + '"></label>' +
-      '<label class="f">' + esc(t('lap.ttd_pembina_pilih')) + '<select class="inp" data-lap="pembinaId">' + H.opt('', t('lap.pilih_pembina')) + L.pembinaList.map(function (p) { return H.opt(p.id, p.name, p.id === f.pembinaId); }).join('') + '</select></label></div><p class="small muted">' + esc(t('lap.ttd_ket')) + '</p></div>';
+    h += '<div class="card"><h3>' + esc(t('lap.tanda_tangan')) + '</h3><div class="form"><label class="f">' + esc(t('lap.ttd_tempat')) + '<input class="inp" data-lap="ttdTempat" value="' + esc(f.ttdTempat) + '"' + ro + '></label><label class="f">' + esc(t('lap.ttd_tanggal')) + '<input class="inp" type="date" data-lap="ttdTanggal" value="' + esc(f.ttdTanggal) + '"' + ro + '></label>' +
+      '<label class="f">' + esc(t('lap.ttd_pembina_pilih')) + (ed ? '<select class="inp" data-lap="pembinaId">' + H.opt('', t('lap.pilih_pembina')) + L.pembinaList.map(function (p) { return H.opt(p.id, p.name, p.id === f.pembinaId); }).join('') + '</select>' : '<input class="inp" value="' + esc(L.pembinaNama || '–') + '" readonly disabled>') + '</label></div>' + (ed ? '<p class="small muted">' + esc(t('lap.ttd_ket')) + '</p>' : '') + '</div>';
+    if (ed) {
+      // penerbitan: sifat (Rahasia/Umum diatur Admin) + Terkendali/Tidak terkendali, masa berlaku, lalu Terbitkan
+      var siap = f.pembinaId && L.kendali && (L.berlakuMode === 'cabut' || (L.berlakuMode === 'tanggal' && L.berlakuSampai && L.berlakuSampai >= L.today));
+      h += '<div class="card"><h3>' + esc(t('dok.terbitkan')) + '</h3><div class="form"><label class="f">' + esc(t('dok.sifat_dokumen')) + ' — ' + esc(t('dok.' + L.sifat)) + '<select class="inp" data-lap="kendali">' + H.opt('', '–') + H.opt('terkendali', t('dok.terkendali'), L.kendali === 'terkendali') + H.opt('tidak', t('dok.tidak_terkendali'), L.kendali === 'tidak') + '</select></label>' +
+        '<label class="f">' + esc(t('dok.masa_berlaku')) + '<select class="inp" data-lap="berlakuMode">' + H.opt('', '–') + H.opt('tanggal', t('dok.sampai_tanggal'), L.berlakuMode === 'tanggal') + H.opt('cabut', t('dok.hingga_dicabut'), L.berlakuMode === 'cabut') + '</select></label>' +
+        (L.berlakuMode === 'tanggal' ? '<label class="f">' + esc(t('dok.sampai_tanggal')) + '<input class="inp" type="date" min="' + esc(L.today) + '" data-lap="berlakuSampai" value="' + esc(L.berlakuSampai || '') + '"></label>' : '') +
+        '</div><div class="row" style="margin-top:10px"><button class="btn" data-act="blLapTerbit"' + (siap ? '' : ' disabled') + '>' + esc(t('dok.terbitkan')) + '</button></div></div>';
+    }
     return h;
   }
-  function lapId() { var m = /^bl-laporan-(\d+)$/.exec(H.route()); return m ? m[1] : null; }
+  function lapKey() { var m = /^bl-laporan-(l?\d+)$/.exec(H.route()); return m ? m[1] : null; }
+  function lapReq() { var k = lapKey(), L = (ui.blLap || {})[k]; return L ? { lapId: L.lapId } : {}; }
+  function lapAct(action, extra, msg) {
+    var k = lapKey();
+    return C.api(action, Object.assign(lapReq(), extra || {})).then(function (x) { ui.blLap[k] = x; ui.blLapList = null; if (msg) H.toast(msg); H.keepScroll(); App.render(); return x; }, function (e) { H.toast(e.message, true); });
+  }
+  function alasanModal(title, label, min, fn) {
+    var mm = H.modal('<h3>' + esc(title) + '</h3><label class="f">' + esc(label) + '<textarea class="inp" rows="3" id="dkWhy" maxlength="1000"></textarea></label><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="dkOK" disabled>' + esc(title) + '</button></div>');
+    var w = $('#dkWhy', mm), ok = $('#dkOK', mm);
+    w.oninput = function () { ok.disabled = w.value.trim().length < min; };
+    ok.onclick = function () { if (w.value.trim().length < min) return; mm.remove(); fn(w.value.trim()); };
+    w.focus();
+  }
+
+  /* ---------- Admin: jenis dokumen ---------- */
+  function jenisPage() {
+    if (me().role !== 'admin') return H.denied();
+    var j = ui.blJenis;
+    if (!j) { C.api('bl_jenis_get', {}).then(function (x) { ui.blJenis = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
+    return '<h2>' + esc(t('dok.jenis_dokumen')) + '</h2><div class="card"><h3>' + esc(j.nama) + '</h3><div class="form">' +
+      '<label class="f">' + esc(t('dok.sifat')) + '<select class="inp" data-jenis="sifat">' + H.opt('rahasia', t('dok.rahasia'), j.sifat === 'rahasia') + H.opt('umum', t('dok.umum'), j.sifat === 'umum') + '</select></label>' +
+      '<label class="f">' + esc(t('dok.format_nomor')) + ' <span class="small muted">(' + esc(t('dok.format_ket')) + ')</span><input class="inp" data-jenis="format" value="' + esc(j.format) + '"></label>' +
+      '<label class="f">' + esc(t('dok.nomor_berikutnya')) + '<input class="inp" type="number" min="1" data-jenis="next" value="' + esc(j.next) + '"></label>' +
+      '<label class="f">' + esc(t('dok.diterbitkan_oleh')) + '<input class="inp" data-jenis="penerbit" value="' + esc(j.penerbit) + '"></label></div></div>';
+  }
 
   /* ---------- Admin: akun subdomain ---------- */
   function penggunaPage() {
@@ -467,7 +514,7 @@
   }
 
   // data kegiatan dimuat ulang setiap pindah halaman agar status segmen selalu terbaru
-  window.addEventListener('hashchange', function () { cache = {}; ui.blRiwayat = null; ui.blProfil = null; ui.blLapList = null; ui.blLap = null; ui.blAudit = null; });
+  window.addEventListener('hashchange', function () { cache = {}; ui.blRiwayat = null; ui.blProfil = null; ui.blLapList = null; ui.blLap = null; ui.blAudit = null; ui.blJenis = null; });
   App.addActions({
     blKegAdd: function () { act('bl_keg_add', { title: $('#bkT').value, org: $('#bkO').value, kuota: $('#bkK').value }, t('bl.dibuat')).then(function (r) { H.go('bl-' + r.id); }); },
     blTab: function (el) { ui.blTab[kegId()] = el.dataset.v; ui.blEditSoal = null; App.render(); },
@@ -530,7 +577,12 @@
       delModal(t('blapp.hapus_keg_judul'), t('blapp.hapus_keg_ket'), p.name + (p.instansi ? ' – ' + p.instansi : ''), function (why) { ui.blAudit = null; act('bl_pes_del', { id: p.id, alasan: why }, t('blapp.peserta_terhapus')); });
     },
     blUserReset: function (el) { confirmBox(t('admin.reset_sandi'), t('blapp.konfirm_reset'), t('admin.reset_sandi'), function () { act('bl_user_reset', { id: +el.dataset.id }).then(credModal); }); },
-    blLapMek: function () { var id = lapId(); confirmBox(t('lap.susun_ulang'), t('lap.konfirm_susun_ulang'), t('lap.susun_ulang'), function () { C.api('bl_lap_mek', { kegId: +id }).then(function (x) { ui.blLap[id] = x; H.toast(t('umum.tersimpan')); App.render(); }, function (e) { H.toast(e.message, true); }); }); },
+    blLapMek: function () { confirmBox(t('lap.susun_ulang'), t('lap.konfirm_susun_ulang'), t('lap.susun_ulang'), function () { lapAct('bl_lap_mek', {}, t('umum.tersimpan')); }); },
+    blLapTerbit: function () { var L = ui.blLap[lapKey()]; lapAct('bl_lap_terbit', {}, t('dok.dikirim', { pembina: (L.pembinaList.filter(function (p) { return p.id === L.f.pembinaId; })[0] || {}).name || '' })); },
+    blLapSahkan: function () { var L = ui.blLap[lapKey()]; confirmBox(t('dok.sahkan'), L.title, t('dok.sahkan'), function () { lapAct('bl_lap_sahkan', {}, t('dok.disahkan')); }); },
+    blLapKembali: function () { alasanModal(t('dok.kembalikan'), t('dok.catatan_fasil'), 1, function (v) { lapAct('bl_lap_kembali', { catatan: v }, t('dok.dikembalikan')); }); },
+    blLapCabut: function () { alasanModal(t('dok.cabut'), t('dok.alasan'), 10, function (v) { lapAct('bl_lap_cabut', { alasan: v }, t('dok.dicabut_ok')); }); },
+    blLapGanti: function () { alasanModal(t('dok.ganti'), t('dok.alasan'), 10, function (v) { lapAct('bl_lap_ganti', { alasan: v }, t('dok.draf_pengganti')); }); },
     blKosongkan: function () { ['#brN', '#brJ', '#brP', '#brI', '#brE', '#brH', '#brS'].forEach(function (x) { var e = $(x); if (e) e.value = ''; }); },
     blKirim: function (el) {
       var ulang = el.dataset.ulang === '1', f = $('#brS').files[0];
@@ -553,12 +605,16 @@
   App.addChange(function (el, d) {
     var id = kegId();
     if (d.lap) {
-      var lid = lapId();
-      C.api('bl_lap_save', { kegId: +lid, k: d.lap, v: el.value }).then(function (x) { ui.blLap[lid] = x; if (d.lap === 'pelaksana' || d.lap === 'pembinaId') { H.keepScroll(); App.render(); } H.toast(t('umum.tersimpan')); }, function (e) { H.toast(e.message, true); });
+      var lid = lapKey();
+      C.api('bl_lap_save', Object.assign(lapReq(), { k: d.lap, v: el.value })).then(function (x) { ui.blLap[lid] = x; if (['pelaksana', 'pembinaId', 'kendali', 'berlakuMode', 'berlakuSampai'].indexOf(d.lap) >= 0) { H.keepScroll(); App.render(); } H.toast(t('umum.tersimpan')); }, function (e) { H.toast(e.message, true); });
+      return true;
+    }
+    if (d.jenis) {
+      C.api('bl_jenis_save', { k: d.jenis, v: el.value }).then(function (x) { ui.blJenis = x; H.keepScroll(); App.render(); H.toast(t('umum.tersimpan')); }, function (e) { H.toast(e.message, true); });
       return true;
     }
     if (el.id === 'blTor' && el.files && el.files[0]) {
-      var tid = lapId(), tfd = new FormData(); tfd.append('tor', el.files[0]); tfd.append('kegId', tid);
+      var tid = lapKey(), tfd = new FormData(); tfd.append('tor', el.files[0]); tfd.append('lapId', ui.blLap[tid].lapId);
       C.api('bl_lap_tor', null, { form: tfd }).then(function (x) { ui.blLap[tid] = x.lap; H.toast(t(x.found ? 'lap.tor_diambil' : 'lap.tor_tidak_ditemukan'), !x.found); H.keepScroll(); App.render(); }, function (e) { H.toast(e.message, true); el.value = ''; });
       return true;
     }

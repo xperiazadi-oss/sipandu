@@ -39,6 +39,9 @@ function sp_schema_sql(string $driver): array
     $s[] = "CREATE TABLE IF NOT EXISTS bl_eval (id $pk, peserta_id INT NOT NULL, narsum_id INT NOT NULL, aspek INT NOT NULL, nilai INT NOT NULL, UNIQUE (peserta_id, narsum_id, aspek))$eng";
     // Laporan Kegiatan: satu laporan per Fasilitator per kegiatan
     $s[] = "CREATE TABLE IF NOT EXISTS bl_laporan (id $pk, keg_id INT NOT NULL, user_id INT NOT NULL, pelaksana VARCHAR(200) NULL, tor VARCHAR(100) NULL, pendahuluan $txt NULL, mekanisme $txt NULL, kendala $txt NULL, kesimpulan $txt NULL, rekomendasi $txt NULL, pembina_id INT NULL, ttd_tempat VARCHAR(100) NULL, ttd_tanggal VARCHAR(10) NULL, updated_at VARCHAR(19) NULL, UNIQUE (keg_id, user_id))$eng";
+    // dokumen terbit yang dapat diverifikasi di VeriDoc (isi dikunci sebagai snapshot) dan pengaturan jenis dokumen
+    $s[] = "CREATE TABLE IF NOT EXISTS bl_dok (id $pk, lap_id INT NOT NULL, keg_id INT NOT NULL, jenis VARCHAR(40) NOT NULL, revisi INT NOT NULL DEFAULT 0, nomor VARCHAR(120) NOT NULL, kode VARCHAR(14) NOT NULL UNIQUE, akses VARCHAR(9) NULL, sifat VARCHAR(8) NOT NULL, kendali VARCHAR(12) NOT NULL, judul VARCHAR(400) NOT NULL, penerbit VARCHAR(200) NOT NULL, pengesah_id INT NULL, pengesah_nama VARCHAR(150) NOT NULL, pengesah_jabatan VARCHAR(150) NULL, fasil_nama VARCHAR(150) NULL, berlaku_sampai VARCHAR(10) NULL, terbit VARCHAR(10) NOT NULL, status VARCHAR(12) NOT NULL, status_sejak VARCHAR(10) NOT NULL, alasan $txt NULL, menggantikan_id INT NULL, pengganti_id INT NULL, snapshot $txt NOT NULL, isi $txt NOT NULL, sync VARCHAR(8) NOT NULL DEFAULT 'tunda', created_at VARCHAR(19) NULL)$eng";
+    $s[] = "CREATE TABLE IF NOT EXISTS bl_jenis_dok (id $pk, kode VARCHAR(40) NOT NULL UNIQUE, nama VARCHAR(150) NOT NULL, sifat VARCHAR(8) NOT NULL, format VARCHAR(120) NOT NULL, next_no INT NOT NULL DEFAULT 1, tahun INT NOT NULL, penerbit VARCHAR(200) NOT NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS bl_profil (user_id INT PRIMARY KEY, instansi VARCHAR(200) NULL, jabatan VARCHAR(200) NULL, ringkasan $txt NULL, foto VARCHAR(100) NULL, updated_at VARCHAR(19) NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS sheets (id $pk, puskesmas_id INT NOT NULL, param_id INT NOT NULL, alat_id INT NOT NULL, kategori VARCHAR(20) NOT NULL, max_levels INT NOT NULL, levels $txt NOT NULL, metode VARCHAR(120) NULL, reagen VARCHAR(150) NULL, reagen_lot VARCHAR(60) NULL, satuan VARCHAR(30) NULL, status VARCHAR(10) NOT NULL DEFAULT 'aktif', created_at VARCHAR(19) NULL, closed_at VARCHAR(19) NULL, close_reason VARCHAR(150) NULL, prev_id INT NULL, reagen_events $txt NULL, reagen_bhp_id INT NULL)$eng";
     $s[] = "CREATE TABLE IF NOT EXISTS runs (id $pk, sheet_id INT NOT NULL, tgl VARCHAR(10) NOT NULL, seq INT NOT NULL DEFAULT 0, vals $txt NOT NULL, excluded INT NOT NULL DEFAULT 0, reason $txt NULL, note $txt NULL, by_user INT NULL, by_name VARCHAR(150) NULL, created_at VARCHAR(19) NULL, eval $txt NULL)$eng";
@@ -71,7 +74,7 @@ function sp_create_schema(PDO $pdo, string $driver): void
 }
 
 /** Versi skema saat ini; dinaikkan setiap ada kolom/tabel baru */
-const SP_SCHEMA_VERSION = 7;
+const SP_SCHEMA_VERSION = 8;
 
 /** Kolom yang ditambahkan setelah versi 1 (untuk basis data yang sudah terpasang) */
 function sp_added_columns(string $driver): array
@@ -82,6 +85,7 @@ function sp_added_columns(string $driver): array
         'alat' => ['tipe' => 'VARCHAR(150) NULL', 'no_seri' => 'VARCHAR(80) NULL', 'prinsip' => 'VARCHAR(150) NULL', 'tahun' => 'VARCHAR(4) NULL', 'kondisi' => 'VARCHAR(12) NULL', 'kal_terakhir' => 'VARCHAR(10) NULL', 'kal_berikut' => 'VARCHAR(10) NULL', 'created_at' => 'VARCHAR(19) NULL'],
         'sheets' => ['reagen_bhp_id' => 'INT NULL'],
         'users' => ['personel_id' => 'INT NULL'],
+        'bl_laporan' => ['status' => "VARCHAR(12) NOT NULL DEFAULT 'draf'", 'kendali' => 'VARCHAR(12) NULL', 'berlaku_mode' => 'VARCHAR(8) NULL', 'berlaku_sampai' => 'VARCHAR(10) NULL', 'catatan_kembali' => "$txt NULL", 'ganti_dok_id' => 'INT NULL', 'diajukan_at' => 'VARCHAR(19) NULL'],
         'personel' => ['pin_hash' => 'VARCHAR(255) NULL', 'pin_at' => 'VARCHAR(19) NULL', 'pin_gagal' => 'INT NOT NULL DEFAULT 0', 'pin_kunci' => 'INT NULL'],
     ];
 }
@@ -105,7 +109,7 @@ function sp_migrate(PDO $pdo, string $driver): void
 /** Tabel yang wajib ada (dipakai uji mandiri) */
 function sp_required_tables(): array
 {
-    return ['settings', 'puskesmas', 'users', 'params', 'alat', 'sheets', 'runs', 'comments', 'cases', 'notifs', 'notif_reads', 'risks', 'kops', 'audit_log', 'login_attempts', 'personel', 'personel_foto', 'bhp', 'bl_users', 'bl_audit', 'bl_laporan', 'bl_keg', 'bl_seg', 'bl_peserta', 'bl_soal', 'bl_jawab', 'bl_selesai', 'bl_aspek', 'bl_nilai', 'bl_materi', 'bl_eval', 'bl_profil'];
+    return ['settings', 'puskesmas', 'users', 'params', 'alat', 'sheets', 'runs', 'comments', 'cases', 'notifs', 'notif_reads', 'risks', 'kops', 'audit_log', 'login_attempts', 'personel', 'personel_foto', 'bhp', 'bl_users', 'bl_audit', 'bl_laporan', 'bl_dok', 'bl_jenis_dok', 'bl_keg', 'bl_seg', 'bl_peserta', 'bl_soal', 'bl_jawab', 'bl_selesai', 'bl_aspek', 'bl_nilai', 'bl_materi', 'bl_eval', 'bl_profil'];
 }
 
 /** Nama resmi 27 Puskesmas (urut abjad = kode P01–P27) */

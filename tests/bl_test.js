@@ -65,7 +65,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await login(X, 'pkm01', 'Puskesmas01Baru'); ok(/salah/.test(await txt(X)), 'Akun Binaan Si PANDU tidak berlaku di subdomain');
   const A = await newPage(); await login(A, 'admin', 'BelajarAdmin2026');
   ok(/Si PANDU – Peningkatan Kapasitas Kompetensi SDM/.test(await txt(A)), 'Judul situs: "Si PANDU – Peningkatan Kapasitas Kompetensi SDM"');
-  ok((await A.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-pengguna,#bl-audit', 'Menu Admin subdomain: Kegiatan, Pengguna, Audit trail');
+  ok((await A.evaluate(() => [...document.querySelectorAll('.nav a')].map(a => a.getAttribute('href')).join())) === '#bl,#bl-pengguna,#bl-laporan,#bl-jenis,#bl-audit', 'Menu Admin subdomain: Kegiatan, Pengguna, Laporan Kegiatan, Jenis dokumen, Audit trail');
   ok((await status(A, BL + '/kop.php?k=pembina')) === 404 && (await status(A, BL + '/foto.php?f=1')) === 404, 'Admin subdomain tidak dapat membuka berkas Si PANDU');
   const mainSess = await SA.evaluate(() => Core.api('state').then(() => Core.me().username)); ok(mainSess === 'admin', 'Sesi Si PANDU tidak terganggu sesi subdomain');
 
@@ -274,6 +274,8 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await A.reload(); await A.waitForTimeout(400); await click(A, '[data-act=blTab][data-v=rekap]');
   ok(/82,4/.test(await txt(A)) && /Penilaian peserta terhadap narasumber/.test(await txt(A)), 'Rekap Admin: nilai & penilaian narasumber');
 
+  const anyToast = p => p.evaluate(() => [...document.querySelectorAll('.toast')].map(x => x.textContent).join(' '));
+  const dbq = sql => require('child_process').execFileSync('php', ['-r', '$d=new PDO("sqlite:/tmp/sp/db.sqlite"); echo $d->query($argv[1])->fetchColumn();', sql]).toString().trim();
   // ---- Laporan Kegiatan (Fasilitator)
   await go(FA, 'bl-laporan'); await FA.waitForTimeout(500);
   ok(/Laporan Kegiatan/.test(await txt(FA)) && /Pelatihan QC Westgard 2026/.test(await txt(FA)), 'Laporan Kegiatan: daftar kegiatan yang ditugaskan');
@@ -298,12 +300,82 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   const pdfR = await dl(FA, 'pdf'), docR = await dl(FA, 'docx');
   ok(pdfR.s === 200 && pdfR.h === '%PDF-' && pdfR.n > 3000, 'Unduh PDF');
   ok(docR.s === 200 && docR.h.startsWith('PK') && /wordprocessingml/.test(docR.t), 'Unduh Word (.docx)');
-  ok((await dl(A, 'pdf')).s === 404 && (await dl(P, 'pdf')).s === 404 && (await dl(W, 'pdf')).s === 404 && (await dl(FB, 'pdf')).s === 404, 'Laporan hanya untuk Fasilitator yang ditugaskan');
-  ok(!(await api(A, 'bl_lap_get', { kegId: +kid })).ok && !(await api(P, 'bl_lap_list', {})).ok, 'Admin & Pembina tidak dapat membuka Laporan Kegiatan');
+  ok((await dl(P, 'pdf')).s === 404 && (await dl(W, 'pdf')).s === 404 && (await dl(FB, 'pdf')).s === 404, 'Draf laporan hanya untuk Fasilitator yang ditugaskan');
+  const lapId = (await api(FA, 'bl_lap_get', { kegId: +kid })).r.lapId;
+  ok((await api(P, 'bl_lap_list', {})).r.length === 0 && !(await api(P, 'bl_lap_get', { lapId })).ok && !(await api(W, 'bl_lap_list', {})).ok, 'Pembina belum melihat draf yang belum diajukan; Pengawas tidak punya akses');
   const pdfBin = await FA.evaluate(k => fetch('berkas.php?j=lap&f=pdf&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
   fs.writeFileSync('/tmp/laporan_uji.pdf', Buffer.from(pdfBin));
   const docBin = await FA.evaluate(k => fetch('berkas.php?j=lap&f=docx&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
   fs.writeFileSync('/tmp/laporan_uji.docx', Buffer.from(docBin));
+
+  // ---- Penerbitan & VeriDoc: Terbitkan → Kembalikan/Sahkan → Ganti → Cabut
+  const py = (code) => require('child_process').execFileSync('python3', ['-c', code]).toString().trim();
+  const vd = (kode, akses) => fetch('http://127.0.0.1:3912/api/dok' + (akses ? '' : '?kode=' + kode), akses ? { method: 'POST', body: JSON.stringify({ kode, akses }) } : {}).then(r => r.json());
+  const bytes = (b) => Buffer.from(b).toString('latin1');
+  ok(bytes(pdfBin).includes('DRAF') && Buffer.from(docBin).includes('header1.xml'), 'Draf yang diunduh bercap DRAF – BELUM SAH (PDF & Word)');
+  ok(await FA.isDisabled('[data-act=blLapTerbit]'), 'Terbitkan nonaktif sebelum sifat & masa berlaku dipilih');
+  await FA.selectOption('[data-lap=kendali]', 'terkendali'); await FA.waitForTimeout(400);
+  await FA.selectOption('[data-lap=berlakuMode]', 'tanggal'); await FA.waitForTimeout(500);
+  await api(FA, 'bl_lap_save', { kegId: +kid, k: 'berlakuSampai', v: '2020-01-01' });
+  ok(!(await api(FA, 'bl_lap_terbit', { kegId: +kid })).ok, 'Masa berlaku yang sudah lewat ditolak');
+  await go(FA, 'bl-laporan'); await go(FA, 'bl-laporan-' + kid); await FA.waitForTimeout(600);
+  await FA.fill('[data-lap=berlakuSampai]', '2099-12-31'); await FA.press('[data-lap=berlakuSampai]', 'Tab'); await FA.waitForTimeout(600);
+  ok(!(await FA.isDisabled('[data-act=blLapTerbit]')), 'Terbitkan aktif setelah Pembina, sifat, dan masa berlaku lengkap');
+  await click(FA, '[data-act=blLapTerbit]'); await FA.waitForTimeout(600);
+  ok(/Laporan dikirim kepada .+ untuk disahkan\./.test(await anyToast(FA)) && /Menunggu pengesahan/.test(await txt(FA)) && await FA.isDisabled('[data-lap=kesimpulan]'), 'Terbitkan: dikirim ke Pembina, isian terkunci');
+  ok(!(await api(FA, 'bl_lap_save', { kegId: +kid, k: 'kesimpulan', v: 'x' })).ok, 'Isi tidak bisa diubah selama menunggu pengesahan');
+  ok(!(await api(FB, 'bl_lap_sahkan', { lapId })).ok && !(await api(A, 'bl_lap_sahkan', { lapId })).ok, 'Hanya Pembina terpilih yang dapat mengesahkan');
+  await go(P, 'bl-laporan'); await P.waitForTimeout(500);
+  ok(/Pelatihan QC Westgard 2026/.test(await txt(P)) && /Menunggu pengesahan/.test(await txt(P)), 'Pembina: daftar laporan yang diajukan kepadanya');
+  await go(P, 'bl-laporan-l' + lapId); await P.waitForTimeout(600);
+  await click(P, '[data-act=blLapKembali]'); ok(await P.isDisabled('#dkOK'), 'Kembalikan: catatan wajib');
+  await P.fill('#dkWhy', 'Mohon lengkapi kendala teknis.'); await click(P, '#dkOK'); await P.waitForTimeout(600);
+  ok(/Laporan dikembalikan kepada Fasilitator\./.test(await anyToast(P)), 'Laporan dikembalikan');
+  await go(FA, 'bl-laporan'); await go(FA, 'bl-laporan-' + kid); await FA.waitForTimeout(600);
+  ok(/Catatan untuk Fasilitator:\s*Mohon lengkapi kendala teknis\./.test(await txt(FA)) && !(await FA.isDisabled('[data-lap=kesimpulan]')), 'Fasilitator melihat catatan & dapat menyunting lagi');
+  await click(FA, '[data-act=blLapTerbit]'); await FA.waitForTimeout(500);
+  await go(P, 'bl-laporan'); await go(P, 'bl-laporan-l' + lapId); await P.waitForTimeout(600);
+  await click(P, '[data-act=blLapSahkan]'); await click(P, '#cbOK'); await P.waitForTimeout(1500);
+  const th = new Date().getFullYear();
+  let L1 = (await api(P, 'bl_lap_get', { lapId })).r;
+  ok(/Laporan sudah disahkan dan terdaftar di VeriDoc\./.test(await anyToast(P)) && L1.tampil === 'sah' && L1.dokInfo.nomor === 'LAP/1/Labkesda/' + th, 'Sahkan: nomor otomatis LAP/1/Labkesda/' + th);
+  ok(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/.test(L1.dokInfo.kode) && /^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/.test(L1.dokInfo.akses) && L1.dokInfo.sync === 'ok', 'Kode verifikasi, kode akses (Rahasia–Terkendali), terdaftar di VeriDoc');
+  let v1 = await vd(L1.dokInfo.kode);
+  ok(v1.status === 'sah' && v1.terkunci && v1.isi === null && v1.sifat === 'rahasia' && v1.kendali === 'terkendali' && v1.pengesah.jabatan === 'Pembina' && v1.sampai === '2099-12-31', 'VeriDoc: identitas & status tampil, isi rahasia terkunci');
+  v1 = await vd(L1.dokInfo.kode, L1.dokInfo.akses.toLowerCase());
+  const isiTeks = JSON.stringify(v1.isi || []);
+  ok(!v1.terkunci && /Judul Kegiatan/.test(isiTeks) && /Skor akhir/.test(isiTeks) && /Jaringan internet sempat terputus/.test(isiTeks) && !/Nomor/.test(JSON.stringify(v1.isi[0])), 'VeriDoc: isi tampil dengan kode akses (identitas, tabel hasil, butir manual)');
+  ok(!(await api(FA, 'bl_lap_save', { kegId: +kid, k: 'kesimpulan', v: 'x' })).ok, 'Isi dokumen sah terkunci');
+  const pdf2 = await FA.evaluate(k => fetch('berkas.php?j=lap&f=pdf&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
+  fs.writeFileSync('/tmp/laporan_sah.pdf', Buffer.from(pdf2));
+  const doc2 = await FA.evaluate(k => fetch('berkas.php?j=lap&f=docx&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
+  fs.writeFileSync('/tmp/laporan_sah.docx', Buffer.from(doc2));
+  ok(!bytes(pdf2).includes('DRAF') && bytes(pdf2).includes('LAP/1/Labkesda/' + th) && bytes(pdf2).includes(L1.dokInfo.kode) && bytes(pdf2).includes(L1.dokInfo.akses) && bytes(pdf2).includes('RAHASIA'), 'PDF sah: tanpa cap DRAF; nomor, sifat, kode verifikasi & kode akses tercetak');
+  const qrPdf = py(`import cv2,subprocess,glob\nsubprocess.run(['pdftoppm','-r','200','-png','/tmp/laporan_sah.pdf','/tmp/lsah'],check=True)\nd=cv2.QRCodeDetector()\nout=[]\nfor f in sorted(glob.glob('/tmp/lsah*.png')):\n  v,_,_=d.detectAndDecode(cv2.imread(f))\n  if v: out.append(v)\nprint(out[-1] if out else '')`);
+  ok(qrPdf === 'http://127.0.0.1:3912/d/' + L1.dokInfo.kode, 'QR pada PDF terbaca dan mengarah ke halaman VeriDoc dokumen');
+  const qrDoc = py(`import zipfile,cv2,numpy as np\nz=zipfile.ZipFile('/tmp/laporan_sah.docx')\nb=np.frombuffer(z.read('word/media/qr.png'),np.uint8)\nim=cv2.imdecode(b,1)\nv=[cv2.QRCodeDetector().detectAndDecode(cv2.resize(im,None,fx=f,fy=f,interpolation=cv2.INTER_AREA))[0] for f in (1,0.75,0.5)]\nprint(next((x for x in v if x),''))`);
+  ok(qrDoc === 'http://127.0.0.1:3912/d/' + L1.dokInfo.kode && !Buffer.from(doc2).includes('header1.xml'), 'QR pada Word terbaca; tanpa cap DRAF');
+  // Admin: jenis dokumen
+  await go(A, 'bl-jenis'); await A.waitForTimeout(500);
+  ok(/Jenis dokumen/.test(await txt(A)) && (await A.inputValue('[data-jenis=format]')) === 'LAP/{urut}/Labkesda/{tahun}' && (await A.inputValue('[data-jenis=next]')) === '2', 'Admin › Jenis dokumen: format & nomor berikutnya');
+  await A.fill('[data-jenis=next]', '778'); await A.press('[data-jenis=next]', 'Tab'); await A.waitForTimeout(500);
+  ok(!(await api(P, 'bl_jenis_save', { k: 'next', v: 5 })).ok && !(await api(A, 'bl_jenis_save', { k: 'format', v: 'TANPA-URUT' })).ok, 'Jenis dokumen hanya Admin; format wajib memuat {urut}');
+  // Ganti (dengan pembaruan)
+  await go(P, 'bl-laporan'); await go(P, 'bl-laporan-l' + lapId); await P.waitForTimeout(600);
+  await click(P, '[data-act=blLapGanti]'); await P.fill('#dkWhy', 'pendek'); ok(await P.isDisabled('#dkOK'), 'Alasan ganti minimal 10 karakter');
+  await P.fill('#dkWhy', 'Perbaikan data hasil pelatihan.'); await click(P, '#dkOK'); await P.waitForTimeout(700);
+  ok(/Draf pengganti dibuat; dokumen lama tetap berlaku sampai pengganti disahkan\./.test(await anyToast(P)) && (await vd(L1.dokInfo.kode)).status === 'sah', 'Ganti: draf pengganti dibuat, dokumen lama tetap sah');
+  ok((await api(FA, 'bl_lap_save', { kegId: +kid, k: 'kesimpulan', v: 'Kegiatan berjalan sangat baik.' })).ok, 'Fasilitator menyunting draf pengganti');
+  await api(FA, 'bl_lap_terbit', { kegId: +kid });
+  ok((await api(P, 'bl_lap_sahkan', { lapId })).ok, 'Pengganti disahkan');
+  const Lg = (await api(P, 'bl_lap_get', { lapId })).r;
+  const vOld = await vd(L1.dokInfo.kode), vNew = await vd(Lg.dokInfo.kode);
+  ok(Lg.dokInfo.nomor === 'LAP/778/Labkesda/' + th && Lg.dokInfo.revisi === 1 && vNew.status === 'sah', 'Dokumen pengganti: nomor LAP/778 (nomor berikutnya dari Admin), revisi 1');
+  ok(vOld.status === 'digantikan' && vOld.pengganti === 'LAP/778/Labkesda/' + th, 'VeriDoc: dokumen lama DIGANTIKAN + nomor pengganti');
+  // masa berlaku habis dihitung dari tanggal
+  dbq(`UPDATE bl_dok SET berlaku_sampai='2020-01-01' WHERE id=${Lg.dokInfo.id}`);
+  ok((await api(P, 'bl_lap_get', { lapId })).r.tampil === 'habis', 'Status Masa berlaku habis dihitung dari tanggal');
+  dbq(`UPDATE bl_dok SET berlaku_sampai='2099-12-31' WHERE id=${Lg.dokInfo.id}`);
 
   // ---- Admin: kelola akun
   await go(A, 'bl-pengguna'); await A.waitForTimeout(300);
@@ -320,6 +392,27 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await api(A, 'bl_keg_status', { id: +kid, v: 'arsip' });
   const X2 = await newPage(); await login(X2, 'fasil1', 'Fasilitator1Baru'); ok(/salah/.test(await txt(X2)), 'Kegiatan diarsipkan → akun Fasilitator dinonaktifkan');
   ok((await api(S2, 'bl_get', { id: +kid })).r.result.mine.post === 80 && (await api(W, 'bl_get', { id: +kid })).ok, 'Peserta & Pengawas tetap dapat melihat hasil setelah diarsipkan');
+  // Setelah arsip: Admin menyunting draf pengganti; Cabut tanpa VeriDoc → antrean dikirim ulang
+  const lapId2 = (await api(A, 'bl_lap_list', {})).r.find(x => x.title === 'Pelatihan QC Westgard 2026').lapId;
+  ok((await api(A, 'bl_lap_ganti', { lapId: lapId2, alasan: 'Koreksi setelah kegiatan diarsipkan.' })).ok, 'Admin: Ganti setelah arsip');
+  await go(A, 'bl-laporan'); await go(A, 'bl-laporan-l' + lapId2); await A.waitForTimeout(600);
+  ok(!(await A.isDisabled('[data-lap=rekomendasi]')) && !(await api(P, 'bl_lap_save', { lapId: lapId2, k: 'rekomendasi', v: 'x' })).ok, 'Draf pengganti setelah arsip disunting Admin (Pembina tidak)');
+  await A.fill('[data-lap=rekomendasi]', 'Perlu pelatihan lanjutan tahun depan.'); await A.press('[data-lap=rekomendasi]', 'Tab'); await A.waitForTimeout(400);
+  ok((await api(A, 'bl_lap_terbit', { lapId: lapId2 })).ok && (await api(P, 'bl_lap_sahkan', { lapId: lapId2 })).ok, 'Admin menerbitkan, Pembina mengesahkan pengganti');
+  const L3 = (await api(A, 'bl_lap_get', { lapId: lapId2 })).r;
+  try { require('child_process').execFileSync('pkill', ['-f', 'portal/server.mjs']); } catch (e) {} await new Promise(r => setTimeout(r, 300));
+  await go(A, 'bl-laporan'); await go(A, 'bl-laporan-l' + lapId2); await A.waitForTimeout(600);
+  await click(A, '[data-act=blLapCabut]'); await A.fill('#dkWhy', 'Dokumen tidak lagi diperlukan.'); await click(A, '#dkOK'); await A.waitForTimeout(1500);
+  let L4 = (await api(A, 'bl_lap_get', { lapId: lapId2 })).r;
+  ok(/Dokumen dicabut\./.test(await anyToast(A)) && L4.tampil === 'dicabut' && L4.dokInfo.sync === 'tunda', 'Cabut saat VeriDoc tidak terjangkau: status dicabut, masuk antrean');
+  require('child_process').spawn(process.execPath, ['portal/server.mjs'], { cwd: '/home/claude/sicinta-lhu', env: { ...process.env, SICINTA_DATA_DIR: '/tmp/vdtest', PORT: '3912', LHU_PRIVATE_ORIGIN: 'http://127.0.0.1:9' }, detached: true, stdio: 'ignore' }).unref();
+  await new Promise(r => setTimeout(r, 900));
+  dbq(`UPDATE settings SET v='0' WHERE k='veridoc_coba'`);
+  await api(A, 'bl_lap_list', {});
+  L4 = (await api(A, 'bl_lap_get', { lapId: lapId2 })).r;
+  const v4 = await vd(L3.dokInfo.kode);
+  ok(L4.dokInfo.sync === 'ok' && v4.status === 'dicabut' && v4.sejak === L4.today, 'Antrean terkirim ulang: VeriDoc menampilkan DICABUT');
+  ok(!(await api(A, 'bl_lap_ganti', { lapId: lapId2, alasan: 'Tidak boleh setelah dicabut.' })).ok, 'Dokumen dicabut tidak dapat diganti/dicabut lagi');
 
   // ---- jumlah soal 10–25: nilai = benar ÷ jumlah soal × 100
   const k2 = (await api(A, 'bl_keg_add', { title: 'Kegiatan 12 soal', org: 'Labkesda', kuota: '5' })).r.id;
@@ -385,8 +478,6 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await api(A, 'bl_keg_status', { id: k3, v: 'arsip' });
   ok(/diarsipkan/.test((await api(S2, 'bl_selesai', { segId: mat3.id })).e || ''), 'Setelah kegiatan diarsipkan, segmen tidak dapat diselesaikan');
 
-    const anyToast = p => p.evaluate(() => [...document.querySelectorAll('.toast')].map(x => x.textContent).join(' '));
-  const dbq = sql => require('child_process').execFileSync('php', ['-r', '$d=new PDO("sqlite:/tmp/sp/db.sqlite"); echo $d->query($argv[1])->fetchColumn();', sql]).toString().trim();
   // ---- Admin: hapus peserta (alasan wajib, audit trail)
   const aniId = await A.evaluate(() => Core.S.users.find(u => u.username === 'ani').id);
   ok(/diarsipkan sehingga tidak dapat dihapus/.test((await api(A, 'bl_user_del', { id: aniId, alasan: 'Uji penghapusan akun arsip' })).e || ''), 'Akun yang tercatat di kegiatan arsip tidak dapat dihapus');

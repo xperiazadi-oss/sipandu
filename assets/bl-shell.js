@@ -19,15 +19,15 @@ var App = (function () {
 
   /* menu per peran: [rute, kunci teks] */
   var MENU = {
-    admin: [['bl', 'blapp.menu_kegiatan'], ['bl-pengguna', 'blapp.menu_pengguna'], ['bl-audit', 'blapp.menu_audit']],
-    pembina: [['bl', 'blapp.menu_kegiatan'], ['bl-profil', 'menu.bl_profil']],
+    admin: [['bl', 'blapp.menu_kegiatan'], ['bl-pengguna', 'blapp.menu_pengguna'], ['bl-laporan', 'blapp.menu_laporan'], ['bl-jenis', 'dok.jenis_dokumen'], ['bl-audit', 'blapp.menu_audit']],
+    pembina: [['bl', 'blapp.menu_kegiatan'], ['bl-profil', 'menu.bl_profil'], ['bl-laporan', 'blapp.menu_laporan']],
     fasil: [['bl', 'blapp.menu_kegiatan'], ['bl-profil', 'menu.bl_profil'], ['bl-laporan', 'blapp.menu_laporan']],
     pengawas: [['bl', 'blapp.menu_kegiatan']],
     peserta: [['bl', 'blapp.menu_kegiatan'], ['bl-riwayat', 'blapp.menu_riwayat']]
   };
   function layout(body, cur) {
     var u = C.me();
-    var sub = ['bl-pengguna', 'bl-profil', 'bl-riwayat', 'bl-laporan', 'bl-audit'];
+    var sub = ['bl-pengguna', 'bl-profil', 'bl-riwayat', 'bl-laporan', 'bl-audit', 'bl-jenis'];
     var inSub = function (r) { return sub.some(function (x) { return r === x || r.indexOf(x + '-') === 0; }); };
     var nav = (MENU[u.role] || []).map(function (m) {
       var on = m[0] === 'bl' ? (cur === 'bl' || (cur.indexOf('bl-') === 0 && !inSub(cur))) : (cur === m[0] || cur.indexOf(m[0] + '-') === 0);
