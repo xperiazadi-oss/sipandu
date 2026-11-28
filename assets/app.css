@@ -115,3 +115,37 @@ select.cell:disabled,input.cell:disabled{color:inherit}
 .tl-item.tutup .tl-dot{border-color:var(--pri);background:var(--pri)}
 .tl-item.buka>.card{border-color:var(--ok);box-shadow:0 0 0 2px var(--ok-bg)}
 .bar{height:6px;border-radius:3px;background:#edf2f4;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--pri)}
+/* Laporan Kegiatan: penyunting teks berformat, sampul, lampiran */
+.modal.wide{width:min(900px,96vw)}
+.rt{border:1px solid #cfd8dc;border-radius:8px;margin:6px 0 10px;background:#fff}
+.rt-tb{display:flex;flex-wrap:wrap;gap:2px;align-items:center;padding:4px;border-bottom:1px solid #e3e8ea;background:#f6f8f9;border-radius:8px 8px 0 0;position:sticky;top:0;z-index:2}
+.rt-b{border:1px solid transparent;background:none;border-radius:5px;min-width:28px;height:28px;padding:0 6px;cursor:pointer;color:#263238;font:inherit;display:inline-flex;align-items:center;justify-content:center}
+.rt-b:hover,.rt-b:focus-visible{background:#e3ecef;border-color:#cfd8dc}
+.rt-data{font-size:12.5px;color:var(--pri)}
+.rt-size{height:28px;border:1px solid #cfd8dc;border-radius:5px;font-size:12.5px;background:#fff}
+.rt-sep{width:1px;height:20px;background:#cfd8dc;margin:0 4px}
+.rt-ed,.rt-view{font-family:"Times New Roman",Times,serif;font-size:12pt;line-height:1.45;color:#111}
+.rt-ed{min-height:90px;padding:10px 12px;outline:none}
+.rt-ed:focus{box-shadow:inset 0 0 0 2px rgba(13,92,99,.25)}
+.rt-view{padding:4px 0}
+.rt-ed p,.rt-view p,.rt-ed li,.rt-view li{text-align:justify;margin:0 0 6px}
+.rt-ed ol,.rt-ed ul,.rt-view ol,.rt-view ul{margin:0 0 6px;padding-left:26px}
+.rt-ed ol ol,.rt-view ol ol{list-style:lower-alpha}
+.rt-ed ol ol ol,.rt-view ol ol ol{list-style:lower-roman}
+.rt-ed table,.rt-view table{border-collapse:collapse;margin:4px 0 8px;font-size:10pt;max-width:100%}
+.rt-ed td,.rt-ed th,.rt-view td,.rt-view th{border:1px solid #555;padding:3px 6px;min-width:30px;vertical-align:top}
+.rt-ed th,.rt-view th{background:#ebebeb}
+.td-filter{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:8px 0}
+.td-filter fieldset{border:1px solid #e3e8ea;border-radius:8px;padding:6px 8px;max-height:160px;overflow:auto}
+.td-filter legend{font-weight:600;font-size:13px}
+.td-filter .ck{display:block;font-size:13px}
+.td-prev{max-height:300px;overflow:auto;border:1px solid #e3e8ea;border-radius:8px;padding:6px}
+.lap-sub{border-top:1px dashed #e3e8ea;padding-top:8px;margin-top:8px}
+.lap-sub h4{margin:0}
+.lap-foto{display:block;width:100%;aspect-ratio:1400/970;object-fit:cover;border-radius:6px;border:1px solid #e3e8ea;margin-top:4px}
+.lap-foto.kosong{background:repeating-linear-gradient(45deg,#f4f6f7,#f4f6f7 8px,#eef1f2 8px,#eef1f2 16px)}
+.lap-lamp{border:1px solid #e3e8ea;border-radius:8px;padding:8px;margin:8px 0}
+.lap-lamp .row{gap:8px}
+.lamp-file{margin:6px 0}
+.lamp-thumbs{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.lamp-thumbs img{height:90px;border:1px solid #e3e8ea;border-radius:4px;background:#fff}

@@ -276,26 +276,100 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
 
   const anyToast = p => p.evaluate(() => [...document.querySelectorAll('.toast')].map(x => x.textContent).join(' '));
   const dbq = sql => require('child_process').execFileSync('php', ['-r', '$d=new PDO("sqlite:/tmp/sp/db.sqlite"); echo $d->query($argv[1])->fetchColumn();', sql]).toString().trim();
-  // ---- Laporan Kegiatan (Fasilitator)
+  // ---- Laporan format lama dipindahkan otomatis ke bab baru
+  const f2id = dbq("SELECT id FROM bl_users WHERE username='fasil2'");
+  dbq(`INSERT INTO bl_laporan (keg_id, user_id, pendahuluan, mekanisme, kendala, kesimpulan, rekomendasi, status, ttd_tempat) VALUES (${kid}, ${f2id}, 'Latar lama.', 'Mekanisme lama:' || char(10) || '1. Pretest' || char(10) || '2. Materi', '1. Jaringan putus.', 'Kesimpulan lama.', 'Rekomendasi lama.', 'draf', 'Balikpapan')`);
+  const oldId = +dbq(`SELECT id FROM bl_laporan WHERE keg_id=${kid} AND user_id=${f2id}`);
+  const OL = (await api(A, 'bl_lap_get', { lapId: oldId })).r;
+  ok(OL.bab[0].sub[0].html === '<p>Latar lama.</p>' && OL.bab[1].sub[2].html === '<p>Mekanisme lama:</p><ol><li>Pretest</li><li>Materi</li></ol>' && OL.bab[2].sub[0].html === '<ol><li>Jaringan putus.</li></ol>' && OL.bab[3].html === '<p>Kesimpulan lama.</p><p>Rekomendasi lama.</p>' && OL.sampul.judulKegiatan === 'Pelatihan QC Westgard 2026', 'Isi format lama dipindahkan: Pendahuluan→A.1, Mekanisme→B.3, Kendala→C.1, Kesimpulan & Rekomendasi→D');
+  ok((await api(A, 'bl_lap_get', { lapId: oldId })).r.bab[0].sub[0].id === OL.bab[0].sub[0].id, 'Struktur hasil pemindahan tersimpan (id sub-bab tetap)');
+  dbq(`DELETE FROM bl_laporan WHERE id=${oldId}`);
+  // ---- Laporan Kegiatan (Fasilitator): sampul, bab/sub-bab berformat, tabel data, lampiran
+  require('child_process').execFileSync('python3', ['-c', "from PIL import Image, ImageDraw\nim=Image.new('RGB',(1600,1000),(30,120,160)); ImageDraw.Draw(im).ellipse((500,200,1100,800),fill=(240,200,40)); im.save('/tmp/uji_sampul.jpg',quality=90)\np=[Image.new('RGB',(1240,1754),(255,255,255)) for i in range(2)]\nfor i,x in enumerate(p): ImageDraw.Draw(x).rectangle((100,100,1140,300+i*200),fill=(200,30,30))\np[0].save('/tmp/uji_lamp.pdf',save_all=True,append_images=p[1:])"]);
+  const ed = (p, bi, n) => p.locator(`.rt[data-rtb="${bi}"]`).nth(n).locator('.rt-ed');
+  const tb = async (p, bi, n, cmd) => { await p.locator(`.rt[data-rtb="${bi}"]`).nth(n).locator(`[data-rtc="${cmd}"]`).click(); await p.waitForTimeout(250); };
+  const lapGet = async () => (await api(FA, 'bl_lap_get', { kegId: +kid })).r;
   await go(FA, 'bl-laporan'); await FA.waitForTimeout(500);
   ok(/Laporan Kegiatan/.test(await txt(FA)) && /Pelatihan QC Westgard 2026/.test(await txt(FA)), 'Laporan Kegiatan: daftar kegiatan yang ditugaskan');
   ok((await FA.evaluate(() => document.querySelector('.nav a.on').getAttribute('href'))) === '#bl-laporan', 'Menu Laporan Kegiatan aktif');
-  await go(FA, 'bl-laporan-' + kid); await FA.waitForTimeout(600);
-  const mek = await FA.inputValue('[data-lap=mekanisme]');
-  ok(/^Kegiatan ini dikelola menggunakan Si PANDU/.test(mek) && /1\. Pretest/.test(mek) && /Aturan Westgard \(08\.00–10\.00\)/.test(mek) && /narasumber\/PIC: Dr\. Rina Fasilitator/.test(mek), 'Mekanisme: diawali pengenalan Si PANDU, rundown dari jadwal (segmen, sesi, PIC)');
-  const lt = await txt(FA);
-  ok(/Setelah dilaksanakan kegiatan sebagaimana dijelaskan dalam mekanisme di atas, maka didapatkan hasil:/.test(lt) && /diikuti oleh 2 peserta dari 2 instansi/.test(lt) && /Puskesmas Baru Ilir: 1 peserta/.test(lt), 'Hasil 1: jumlah & variasi peserta');
-  ok(/Skor akhir \(Skor Peserta Terbaik\)/.test(lt) && /82,4/.test(lt) && /67,6/.test(lt), 'Hasil 2: statistik penilaian (rata-rata skor akhir 67,6)');
-  ok(/termasuk kategori Cukup/.test(lt) && /Baik 1 orang, Cukup 0 orang, dan Kurang 1 orang/.test(lt), 'Hasil 3: rata-rata akhir secara kualitatif');
+  await go(FA, 'bl-laporan-' + kid); await FA.waitForTimeout(700);
+  let lt = await txt(FA);
+  ok(/A\. PENDAHULUAN/.test(lt) && /B\. METODOLOGI PELAKSANAAN KEGIATAN/.test(lt) && /C\. HASIL PELAKSANAAN KEGIATAN/.test(lt) && /D\. PENUTUP/.test(lt) && /1\. Latar Belakang/.test(lt) && /4\. Susunan Acara/.test(lt) && /3\. Rencana Aksi/.test(lt), 'Struktur bab & sub-bab awal sesuai daftar isi');
+  ok((await FA.inputValue('[data-lap=judulKegiatan]')) === 'Pelatihan QC Westgard 2026' && (await FA.inputValue('[data-lap=nama]')) !== '' && (await FA.locator('.rt-ed').count()) === 14, 'Sampul terisi awal (judul kegiatan, penyusun); 14 penyunting');
+  await FA.fill('[data-lap=judulLaporan]', 'PEMBINAAN LABKESMAS TINGKAT 2 KOTA BALIKPAPAN'); await FA.press('[data-lap=judulLaporan]', 'Tab'); await FA.waitForTimeout(400);
+  await FA.fill('[data-lap=jabatan]', 'Crosschecker Malaria Kota Balikpapan'); await FA.press('[data-lap=jabatan]', 'Tab'); await FA.waitForTimeout(400);
+  await FA.setInputFiles('#blLapFoto', '/tmp/uji_sampul.jpg'); await FA.waitForTimeout(1500);
+  const fotoOk = await FA.evaluate(() => { const i = document.querySelector('img.lap-foto'); return i && i.complete && i.naturalWidth > 100; });
+  ok(fotoOk && (await lapGet()).sampul.foto, 'Foto sampul diunggah (diperkecil di browser) dan tampil');
   await FA.setInputFiles('#blTor', 'tests/data/tor_contoh.docx'); await FA.waitForTimeout(900);
-  ok(/^Pemantapan mutu internal/.test(await FA.inputValue('[data-lap=pendahuluan]')) && /TOR sudah diunggah/.test(await txt(FA)), 'Pendahuluan diambil otomatis dari TOR (.docx)');
+  ok(/^Pemantapan mutu internal/.test(await ed(FA, 0, 1).innerText()) && /TOR sudah diunggah/.test(await txt(FA)), 'TOR (.docx) → sub-bab Latar Belakang');
   await FA.setInputFiles('#blTor', F.surat); await FA.waitForTimeout(700); ok(/\.docx/.test(await toasts(FA)), 'TOR selain .docx ditolak');
-  await FA.fill('[data-lap=kendala]', '1. Jaringan internet sempat terputus.\n2. Dua peserta terlambat.'); await FA.press('[data-lap=kendala]', 'Tab'); await FA.waitForTimeout(400);
-  await FA.fill('[data-lap=kesimpulan]', 'Kegiatan berjalan baik.'); await FA.press('[data-lap=kesimpulan]', 'Tab'); await FA.waitForTimeout(400);
-  await FA.fill('[data-lap=rekomendasi]', 'Perlu pelatihan lanjutan.'); await FA.press('[data-lap=rekomendasi]', 'Tab'); await FA.waitForTimeout(400);
+  // penyunting: ketik, tebal, rata tengah, daftar bernomor, tabel manual
+  await ed(FA, 1, 1).click(); await FA.keyboard.type('Pelatihan dilaksanakan di Aula Labkesda.');
+  await FA.keyboard.down('Shift'); for (let i = 0; i < 9; i++) await FA.keyboard.press('ArrowLeft'); await FA.keyboard.up('Shift');
+  await tb(FA, 1, 1, 'bold');
+  await FA.keyboard.press('End'); await tb(FA, 1, 1, 'bold'); await FA.keyboard.press('Enter'); await FA.keyboard.type('Rangkaian:');
+  await tb(FA, 1, 1, 'justifyCenter');
+  await FA.keyboard.press('Enter'); await tb(FA, 1, 1, 'justifyLeft'); await tb(FA, 1, 1, 'insertOrderedList'); await FA.keyboard.type('Pretest'); await FA.keyboard.press('Enter'); await FA.keyboard.type('Materi');
+  await FA.keyboard.press('Enter'); await FA.keyboard.press('Enter');
+  await tb(FA, 1, 1, 'tabel'); await FA.fill('#rtR', '2'); await FA.fill('#rtC', '2'); await FA.click('#rtOK'); await FA.waitForTimeout(300);
+  await FA.keyboard.type('Sesi'); await ed(FA, 1, 1).locator('th').nth(1).click(); await FA.keyboard.type('Jam');
+  await tb(FA, 1, 1, 'barisTambah'); await tb(FA, 1, 1, 'kolomTambah');
+  await FA.waitForTimeout(2600);   // tersimpan otomatis setelah jeda ketik
+  let LP = await lapGet(), h1 = LP.bab[1].sub[0].html;
+  ok(/Aula <b>Labkesda\.<\/b><\/p>/.test(h1) && /text-align:center[^>]*>Rangkaian:/.test(h1) && /<ol><li>Pretest<\/li><li>Materi<\/li><\/ol>/.test(h1), 'Penyunting: tebal, rata tengah, daftar bernomor tersimpan otomatis');
+  ok(/<table><tr><th>Sesi<\/th><th>Jam<\/th><th><br><\/th><\/tr><tr><td><br><\/td><td><br><\/td><td><br><\/td><\/tr><tr><td><br><\/td><td><br><\/td><td><br><\/td><\/tr><\/table>/.test(h1), 'Penyunting: sisip tabel, tambah baris & kolom');
+  // tabel olahan website dengan filter
+  const st = (await api(FA, 'bl_lap_tabel', { kegId: +kid, jenis: 'stat' })).r;
+  ok(/Skor akhir \(Skor Peserta Terbaik\)/.test(st.html) && /67,6/.test(st.html) && /82,4/.test(st.html), 'Tabel data: statistik penilaian (rata-rata skor akhir 67,6)');
+  const dt = (await api(FA, 'bl_lap_tabel', { kegId: +kid, jenis: 'detail', instansi: ['Puskesmas Baru Ilir'] })).r;
+  ok(dt.n === 1 && dt.baris[0][dt.kepala.indexOf('Skor akhir')] === '82,4' && dt.opsi.instansi.length === 2, 'Tabel data: filter instansi');
+  const sb = (await api(FA, 'bl_lap_tabel', { kegId: +kid, jenis: 'instansi' })).r;
+  ok(sb.baris.length === 2 && sb.kepala.join('|') === 'No|Instansi|Jumlah peserta', 'Tabel data: sebaran instansi');
+  await ed(FA, 2, 1).click(); await FA.keyboard.type('Jaringan internet sempat terputus.'); await FA.keyboard.press('Enter');
+  await tb(FA, 2, 1, 'data'); await FA.waitForTimeout(700);
+  await FA.selectOption('.modal [data-td=jenis]', 'detail'); await FA.waitForTimeout(700);
+  ok(/82,4/.test(await FA.innerText('.td-prev')) && /52,8/.test(await FA.innerText('.td-prev')), 'Pratinjau tabel rincian nilai');
+  await FA.locator('.modal [data-td=kolom][value=jabatan]').check(); await FA.waitForTimeout(600);
+  await FA.locator('.modal [data-td=kategori][value=b]').check(); await FA.waitForTimeout(700);
+  const prev = await FA.innerText('.td-prev');
+  ok(/82,4/.test(prev) && !/52,8/.test(prev) && /Jabatan\/profesi/.test(prev), 'Filter kategori & pilihan kolom pada pratinjau');
+  await FA.click('#tdOK'); await FA.waitForTimeout(2600);
+  LP = await lapGet();
+  ok(/Jaringan internet sempat terputus\./.test(LP.bab[2].sub[0].html) && /<th[^>]*>Skor akhir<\/th>/.test(LP.bab[2].sub[0].html) && /82,4/.test(LP.bab[2].sub[0].html), 'Tabel data disisipkan ke penyunting');
+  // sub-bab: tambah, ubah nama, hapus
+  await FA.click('[data-act=blSubTambah][data-bab="3"]'); await FA.fill('#nmV', 'Saran'); await FA.click('#nmOK'); await FA.waitForTimeout(600);
+  await FA.click('[data-act=blSubNama][data-bab="3"]'); await FA.fill('#nmV', 'Saran dan Masukan'); await FA.click('#nmOK'); await FA.waitForTimeout(600);
+  const ruang = (await lapGet()).bab[0].sub[2].id;
+  await FA.click(`[data-act=blSubHapus][data-id="${ruang}"]`); await FA.click('#cbOK'); await FA.waitForTimeout(600);
+  LP = await lapGet();
+  ok(LP.bab[3].sub.length === 1 && LP.bab[3].sub[0].judul === 'Saran dan Masukan' && LP.bab[0].sub.length === 2 && /1\. Saran dan Masukan/.test(await txt(FA)), 'Sub-bab: tambah, ubah nama, hapus');
+  await ed(FA, 3, 0).click(); await FA.keyboard.type('Kegiatan berjalan baik.'); await ed(FA, 3, 1).click(); await FA.keyboard.type('Perlu pelatihan lanjutan.');
+  // lampiran: PDF (halaman → gambar di browser) & foto
+  await FA.fill('#lampBaru', 'Materi paparan'); await click(FA, '[data-act=blLampTambah]');
+  await FA.fill('#lampBaru', 'Dokumentasi'); await click(FA, '[data-act=blLampTambah]');
+  LP = await lapGet();
+  ok(LP.lampiran.length === 2 && /LAMPIRAN I\./.test(await txt(FA)) && /LAMPIRAN II\./.test(await txt(FA)), 'Lampiran ditambahkan (bernomor I, II)');
+  await FA.setInputFiles(`[data-lampup="${LP.lampiran[0].id}"]`, '/tmp/uji_lamp.pdf'); await FA.waitForTimeout(6000);
+  await FA.setInputFiles(`[data-lampup="${LP.lampiran[1].id}"]`, ['/tmp/uji_sampul.jpg', F.foto]); await FA.waitForTimeout(3000);
+  LP = await lapGet();
+  ok(LP.lampiran[0].files.length === 1 && LP.lampiran[0].files[0].jenis === 'pdf' && LP.lampiran[0].files[0].hal.length === 2 && /2 halaman/.test(await txt(FA)), 'Lampiran PDF 2 halaman diubah menjadi gambar');
+  ok(LP.lampiran[1].files.length === 2 && (await FA.locator('.lamp-thumbs img').count()) === 4, 'Lampiran foto (JPG & PNG) + gambar mini');
+  fs.writeFileSync('/tmp/uji_lamp.txt', 'teks');
+  await FA.setInputFiles(`[data-lampup="${LP.lampiran[1].id}"]`, '/tmp/uji_lamp.txt'); await FA.waitForTimeout(800);
+  ok(/JPG, PNG, atau PDF/.test(await toasts(FA)), 'Format lampiran selain JPG/PNG/PDF ditolak');
+  await FA.waitForTimeout(4000);
+  await FA.setInputFiles(`[data-lampup="${LP.lampiran[1].id}"]`, F.bukan); await FA.waitForTimeout(1500);
+  ok(/PDF tidak dapat dibaca/.test(await toasts(FA)), 'PDF rusak ditolak dengan pesan');
+  await FA.fill(`[data-lampjudul="${LP.lampiran[1].id}"]`, 'Dokumentasi kegiatan'); await FA.press(`[data-lampjudul="${LP.lampiran[1].id}"]`, 'Tab'); await FA.waitForTimeout(600);
+  await FA.click(`[data-act=blLampFileHapus][data-file="${LP.lampiran[1].files[1].id}"]`); await FA.waitForTimeout(700);
+  LP = await lapGet();
+  ok(LP.lampiran[1].judul === 'Dokumentasi kegiatan' && LP.lampiran[1].files.length === 1, 'Ubah judul lampiran & hapus file');
+  ok((await FA.evaluate(u => fetch(u).then(r => r.status), 'berkas.php?j=lapimg&lap=' + LP.lapId + '&f=' + LP.lampiran[0].files[0].hal[0].f)) === 200 && (await W.evaluate(u => fetch(u).then(r => r.status), 'berkas.php?j=lapimg&lap=' + LP.lapId + '&f=' + LP.lampiran[0].files[0].hal[0].f)) === 404, 'Gambar laporan hanya untuk yang berhak');
   await FA.selectOption('[data-lap=pembinaId]', String(pemb)); await FA.waitForTimeout(500);
-  await FA.reload(); await FA.waitForTimeout(700);
-  ok((await FA.inputValue('[data-lap=kendala]')).startsWith('1. Jaringan') && (await FA.inputValue('[data-lap=pembinaId]')) === String(pemb), 'Isian manual & Pembina tersimpan');
+  await FA.reload(); await FA.waitForTimeout(900);
+  ok((await ed(FA, 3, 0).innerText()).startsWith('Kegiatan berjalan baik') && (await ed(FA, 3, 1).innerText()).startsWith('Perlu pelatihan') && (await FA.inputValue('[data-lap=pembinaId]')) === String(pemb) && (await FA.inputValue('[data-lap=judulLaporan]')).startsWith('PEMBINAAN'), 'Isian penyunting (tersimpan saat pindah kolom), sampul & Pembina tersimpan');
+  ok(!(await api(FA, 'bl_lap_bab', { kegId: +kid, op: 'isi', bab: 9, sub: '', html: 'x' })).ok && (await api(FA, 'bl_lap_bab', { kegId: +kid, op: 'isi', bab: 3, sub: '', html: '<p onclick="x()">Aman<script>alert(1)</script><img src=x onerror=y></p>' })).ok && (await lapGet()).bab[3].html === '<p>Aman</p>', 'HTML penyunting dibersihkan di server');
   const dl = (p, f) => p.evaluate(([k, f]) => fetch('berkas.php?j=lap&f=' + f + '&id=' + k).then(async r => ({ s: r.status, t: r.headers.get('content-type') || '', b: new Uint8Array(await r.arrayBuffer()) })).then(x => ({ s: x.s, t: x.t, n: x.b.length, h: String.fromCharCode.apply(null, x.b.slice(0, 5)) })), [kid, f]);
   const pdfR = await dl(FA, 'pdf'), docR = await dl(FA, 'docx');
   ok(pdfR.s === 200 && pdfR.h === '%PDF-' && pdfR.n > 3000, 'Unduh PDF');
@@ -307,6 +381,12 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   fs.writeFileSync('/tmp/laporan_uji.pdf', Buffer.from(pdfBin));
   const docBin = await FA.evaluate(k => fetch('berkas.php?j=lap&f=docx&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
   fs.writeFileSync('/tmp/laporan_uji.docx', Buffer.from(docBin));
+  const pdft = require('child_process').execFileSync('pdftotext', ['-layout', '/tmp/laporan_uji.pdf', '-']).toString();
+  ok(/LEMBAR PENGESAHAN/.test(pdft) && /DAFTAR ISI/.test(pdft) && /PEMBINAAN LABKESMAS TINGKAT 2/.test(pdft) && /1\. Saran dan Masukan/.test(pdft) && /LAMPIRAN II\. Dokumentasi kegiatan/.test(pdft) && /Jaringan internet sempat terputus/.test(pdft), 'PDF: sampul, Lembar Pengesahan, Daftar Isi, bab berformat, lampiran');
+  const nImg = Number(require('child_process').execFileSync('sh', ['-c', 'pdfimages -list /tmp/laporan_uji.pdf | tail -n +3 | grep -c image || true']).toString().trim());
+  ok(nImg >= 6, 'PDF memuat templat sampul, foto sampul, dan gambar lampiran (' + nImg + ')');
+  const docXml = require('child_process').execFileSync('unzip', ['-p', '/tmp/laporan_uji.docx', 'word/document.xml']).toString();
+  ok(/TOC \\o/.test(docXml) && /LEMBAR PENGESAHAN/.test(docXml) && /w:framePr/.test(docXml) && (docXml.match(/<wp:inline/g) || []).length >= 3, 'Word: sampul berbingkai, daftar isi (bidang TOC), lampiran');
 
   // ---- Penerbitan & VeriDoc: Terbitkan → Kembalikan/Sahkan → Ganti → Cabut
   const py = (code) => require('child_process').execFileSync('python3', ['-c', code]).toString().trim();
@@ -322,8 +402,8 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await FA.fill('[data-lap=berlakuSampai]', '2099-12-31'); await FA.press('[data-lap=berlakuSampai]', 'Tab'); await FA.waitForTimeout(600);
   ok(!(await FA.isDisabled('[data-act=blLapTerbit]')), 'Terbitkan aktif setelah Pembina, sifat, dan masa berlaku lengkap');
   await click(FA, '[data-act=blLapTerbit]'); await FA.waitForTimeout(600);
-  ok(/Laporan dikirim kepada .+ untuk disahkan\./.test(await anyToast(FA)) && /Menunggu pengesahan/.test(await txt(FA)) && await FA.isDisabled('[data-lap=kesimpulan]'), 'Terbitkan: dikirim ke Pembina, isian terkunci');
-  ok(!(await api(FA, 'bl_lap_save', { kegId: +kid, k: 'kesimpulan', v: 'x' })).ok, 'Isi tidak bisa diubah selama menunggu pengesahan');
+  ok(/Laporan dikirim kepada .+ untuk disahkan\./.test(await anyToast(FA)) && /Menunggu pengesahan/.test(await txt(FA)) && !(await FA.locator('.rt-ed').count()) && (await FA.locator('.rt-view').count()) > 0, 'Terbitkan: dikirim ke Pembina, isian terkunci');
+  ok(!(await api(FA, 'bl_lap_bab', { kegId: +kid, op: 'isi', bab: 3, sub: '', html: 'x' })).ok && !(await api(FA, 'bl_lap_save', { kegId: +kid, k: 'judulLaporan', v: 'x' })).ok, 'Isi tidak bisa diubah selama menunggu pengesahan');
   ok(!(await api(FB, 'bl_lap_sahkan', { lapId })).ok && !(await api(A, 'bl_lap_sahkan', { lapId })).ok, 'Hanya Pembina terpilih yang dapat mengesahkan');
   await go(P, 'bl-laporan'); await P.waitForTimeout(500);
   ok(/Pelatihan QC Westgard 2026/.test(await txt(P)) && /Menunggu pengesahan/.test(await txt(P)), 'Pembina: daftar laporan yang diajukan kepadanya');
@@ -332,7 +412,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await P.fill('#dkWhy', 'Mohon lengkapi kendala teknis.'); await click(P, '#dkOK'); await P.waitForTimeout(600);
   ok(/Laporan dikembalikan kepada Fasilitator\./.test(await anyToast(P)), 'Laporan dikembalikan');
   await go(FA, 'bl-laporan'); await go(FA, 'bl-laporan-' + kid); await FA.waitForTimeout(600);
-  ok(/Catatan untuk Fasilitator:\s*Mohon lengkapi kendala teknis\./.test(await txt(FA)) && !(await FA.isDisabled('[data-lap=kesimpulan]')), 'Fasilitator melihat catatan & dapat menyunting lagi');
+  ok(/Catatan untuk Fasilitator:\s*Mohon lengkapi kendala teknis\./.test(await txt(FA)) && (await FA.locator('.rt-ed').count()) > 0, 'Fasilitator melihat catatan & dapat menyunting lagi');
   await click(FA, '[data-act=blLapTerbit]'); await FA.waitForTimeout(500);
   await go(P, 'bl-laporan'); await go(P, 'bl-laporan-l' + lapId); await P.waitForTimeout(600);
   await click(P, '[data-act=blLapSahkan]'); await click(P, '#cbOK'); await P.waitForTimeout(1500);
@@ -344,8 +424,8 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   ok(v1.status === 'sah' && v1.terkunci && v1.isi === null && v1.sifat === 'rahasia' && v1.kendali === 'terkendali' && v1.pengesah.jabatan === 'Pembina' && v1.sampai === '2099-12-31', 'VeriDoc: identitas & status tampil, isi rahasia terkunci');
   v1 = await vd(L1.dokInfo.kode, L1.dokInfo.akses.toLowerCase());
   const isiTeks = JSON.stringify(v1.isi || []);
-  ok(!v1.terkunci && /Judul Kegiatan/.test(isiTeks) && /Skor akhir/.test(isiTeks) && /Jaringan internet sempat terputus/.test(isiTeks) && !/Nomor/.test(JSON.stringify(v1.isi[0])), 'VeriDoc: isi tampil dengan kode akses (identitas, tabel hasil, butir manual)');
-  ok(!(await api(FA, 'bl_lap_save', { kegId: +kid, k: 'kesimpulan', v: 'x' })).ok, 'Isi dokumen sah terkunci');
+  ok(!v1.terkunci && /Judul laporan/.test(isiTeks) && /PEMBINAAN LABKESMAS/.test(isiTeks) && /Skor akhir/.test(isiTeks) && /82,4/.test(isiTeks) && /Jaringan internet sempat terputus/.test(isiTeks) && /LAMPIRAN II\. Dokumentasi kegiatan/.test(isiTeks) && !/Nomor/.test(JSON.stringify(v1.isi[0])), 'VeriDoc: ringkasan isi (identitas sampul, paragraf pertama, tabel lengkap, judul lampiran)');
+  ok(!(await api(FA, 'bl_lap_bab', { kegId: +kid, op: 'isi', bab: 3, sub: '', html: 'x' })).ok, 'Isi dokumen sah terkunci');
   const pdf2 = await FA.evaluate(k => fetch('berkas.php?j=lap&f=pdf&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
   fs.writeFileSync('/tmp/laporan_sah.pdf', Buffer.from(pdf2));
   const doc2 = await FA.evaluate(k => fetch('berkas.php?j=lap&f=docx&id=' + k).then(r => r.arrayBuffer()).then(b => Array.from(new Uint8Array(b))), kid);
@@ -353,7 +433,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   ok(!bytes(pdf2).includes('DRAF') && bytes(pdf2).includes('LAP/1/Labkesda/' + th) && bytes(pdf2).includes(L1.dokInfo.kode) && bytes(pdf2).includes(L1.dokInfo.akses) && bytes(pdf2).includes('RAHASIA'), 'PDF sah: tanpa cap DRAF; nomor, sifat, kode verifikasi & kode akses tercetak');
   const qrPdf = py(`import cv2,subprocess,glob\nsubprocess.run(['pdftoppm','-r','200','-png','/tmp/laporan_sah.pdf','/tmp/lsah'],check=True)\nd=cv2.QRCodeDetector()\nout=[]\nfor f in sorted(glob.glob('/tmp/lsah*.png')):\n  v,_,_=d.detectAndDecode(cv2.imread(f))\n  if v: out.append(v)\nprint(out[-1] if out else '')`);
   ok(qrPdf === 'http://127.0.0.1:3912/d/' + L1.dokInfo.kode, 'QR pada PDF terbaca dan mengarah ke halaman VeriDoc dokumen');
-  const qrDoc = py(`import zipfile,cv2,numpy as np\nz=zipfile.ZipFile('/tmp/laporan_sah.docx')\nb=np.frombuffer(z.read('word/media/qr.png'),np.uint8)\nim=cv2.imdecode(b,1)\nv=[cv2.QRCodeDetector().detectAndDecode(cv2.resize(im,None,fx=f,fy=f,interpolation=cv2.INTER_AREA))[0] for f in (1,0.75,0.5)]\nprint(next((x for x in v if x),''))`);
+  const qrDoc = py(`import zipfile,cv2,numpy as np\nz=zipfile.ZipFile('/tmp/laporan_sah.docx')\nout=''\nfor n in z.namelist():\n  if not n.endswith('.png'): continue\n  im=cv2.imdecode(np.frombuffer(z.read(n),np.uint8),1)\n  for f in (1,0.75,0.5):\n    v=cv2.QRCodeDetector().detectAndDecode(cv2.resize(im,None,fx=f,fy=f,interpolation=cv2.INTER_AREA))[0]\n    if v: out=v; break\nprint(out)`);
   ok(qrDoc === 'http://127.0.0.1:3912/d/' + L1.dokInfo.kode && !Buffer.from(doc2).includes('header1.xml'), 'QR pada Word terbaca; tanpa cap DRAF');
   // Admin: jenis dokumen
   await go(A, 'bl-jenis'); await A.waitForTimeout(500);
@@ -365,7 +445,7 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   await click(P, '[data-act=blLapGanti]'); await P.fill('#dkWhy', 'pendek'); ok(await P.isDisabled('#dkOK'), 'Alasan ganti minimal 10 karakter');
   await P.fill('#dkWhy', 'Perbaikan data hasil pelatihan.'); await click(P, '#dkOK'); await P.waitForTimeout(700);
   ok(/Draf pengganti dibuat; dokumen lama tetap berlaku sampai pengganti disahkan\./.test(await anyToast(P)) && (await vd(L1.dokInfo.kode)).status === 'sah', 'Ganti: draf pengganti dibuat, dokumen lama tetap sah');
-  ok((await api(FA, 'bl_lap_save', { kegId: +kid, k: 'kesimpulan', v: 'Kegiatan berjalan sangat baik.' })).ok, 'Fasilitator menyunting draf pengganti');
+  ok((await api(FA, 'bl_lap_bab', { kegId: +kid, op: 'isi', bab: 3, sub: '', html: '<p>Kegiatan berjalan sangat baik.</p>' })).ok, 'Fasilitator menyunting draf pengganti');
   await api(FA, 'bl_lap_terbit', { kegId: +kid });
   ok((await api(P, 'bl_lap_sahkan', { lapId })).ok, 'Pengganti disahkan');
   const Lg = (await api(P, 'bl_lap_get', { lapId })).r;
@@ -396,8 +476,8 @@ fs.writeFileSync(F.surat, pdf('Surat Tugas')); fs.writeFileSync(F.besar, pdf('Be
   const lapId2 = (await api(A, 'bl_lap_list', {})).r.find(x => x.title === 'Pelatihan QC Westgard 2026').lapId;
   ok((await api(A, 'bl_lap_ganti', { lapId: lapId2, alasan: 'Koreksi setelah kegiatan diarsipkan.' })).ok, 'Admin: Ganti setelah arsip');
   await go(A, 'bl-laporan'); await go(A, 'bl-laporan-l' + lapId2); await A.waitForTimeout(600);
-  ok(!(await A.isDisabled('[data-lap=rekomendasi]')) && !(await api(P, 'bl_lap_save', { lapId: lapId2, k: 'rekomendasi', v: 'x' })).ok, 'Draf pengganti setelah arsip disunting Admin (Pembina tidak)');
-  await A.fill('[data-lap=rekomendasi]', 'Perlu pelatihan lanjutan tahun depan.'); await A.press('[data-lap=rekomendasi]', 'Tab'); await A.waitForTimeout(400);
+  ok((await A.locator('.rt-ed').count()) > 0 && !(await api(P, 'bl_lap_bab', { lapId: lapId2, op: 'isi', bab: 3, sub: '', html: 'x' })).ok, 'Draf pengganti setelah arsip disunting Admin (Pembina tidak)');
+  await A.locator('.rt[data-rtb="3"]').nth(0).locator('.rt-ed').click(); await A.keyboard.press('End'); await A.keyboard.type(' Perlu pelatihan lanjutan tahun depan.'); await A.locator('[data-lap=judulLaporan]').click(); await A.waitForTimeout(700);
   ok((await api(A, 'bl_lap_terbit', { lapId: lapId2 })).ok && (await api(P, 'bl_lap_sahkan', { lapId: lapId2 })).ok, 'Admin menerbitkan, Pembina mengesahkan pengganti');
   const L3 = (await api(A, 'bl_lap_get', { lapId: lapId2 })).r;
   try { require('child_process').execFileSync('pkill', ['-f', 'portal/server.mjs']); } catch (e) {} await new Promise(r => setTimeout(r, 300));

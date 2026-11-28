@@ -293,9 +293,229 @@
     }).join('') + '</table></div>';
   }
 
-  /* ---------- Fasilitator: Laporan Kegiatan ---------- */
+  /* ---------- Laporan Kegiatan ---------- */
   var DOK_CHIP = { draf: 'muted', menunggu: 'warn', sah: 'ok', dicabut: 'bad', digantikan: 'warn', habis: 'bad' };
   function dokChip(st) { return H.chip(t('dok.st.' + st), DOK_CHIP[st] || 'muted'); }
+  function romawi(n) { var r = '', v = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]; v.forEach(function (x) { while (n >= x[0]) { r += x[1]; n -= x[0]; } }); return r; }
+  function lapImg(L, f) { return 'berkas.php?j=lapimg&lap=' + L.lapId + '&f=' + encodeURIComponent(f); }
+
+  /* penyunting teks berformat: toolbar + contenteditable; tersimpan otomatis (jeda ketik & saat pindah kolom) */
+  var SVG = function (d) { return '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="' + d + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'; };
+  var IKON = {
+    justifyLeft: SVG('M3 5h14M3 9h9M3 13h14M3 17h9'), justifyCenter: SVG('M3 5h14M6 9h8M3 13h14M6 17h8'), justifyRight: SVG('M3 5h14M8 9h9M3 13h14M8 17h9'), justifyFull: SVG('M3 5h14M3 9h14M3 13h14M3 17h14'),
+    insertOrderedList: '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M8 5h9M8 10h9M8 15h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><text x="1" y="7" font-size="6" fill="currentColor">1</text><text x="1" y="12" font-size="6" fill="currentColor">2</text><text x="1" y="17" font-size="6" fill="currentColor">3</text></svg>',
+    insertUnorderedList: '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M8 5h9M8 10h9M8 15h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="3.5" cy="5" r="1.5" fill="currentColor"/><circle cx="3.5" cy="10" r="1.5" fill="currentColor"/><circle cx="3.5" cy="15" r="1.5" fill="currentColor"/></svg>',
+    indent: SVG('M9 5h8M9 10h8M9 15h8M3 7l3 3-3 3'), outdent: SVG('M9 5h8M9 10h8M9 15h8M6 7l-3 3 3 3'),
+    tabel: SVG('M3 4h14v12H3zM3 8h14M3 12h14M8 4v12M13 4v12'),
+    barisTambah: SVG('M3 4h14v8H3zM3 8h14M10 14v4M8 16h4'), barisHapus: SVG('M3 4h14v8H3zM3 8h14M8 16h4'),
+    kolomTambah: SVG('M3 3h8v14H3zM7 3v14M15 8v4M13 10h4'), kolomHapus: SVG('M3 3h8v14H3zM7 3v14M13 10h4')
+  };
+  var RT = { st: {}, timer: {}, range: null };
+  function rtKey(bi, sid) { return (lapReq().lapId || 0) + ':' + bi + ':' + (sid || ''); }
+  function rtObj(L, k) { var p = k.split(':'), b = L.bab[+p[1]]; if (!b) return null; return p[2] ? b.sub.filter(function (s) { return s.id === p[2]; })[0] : b; }
+  function rtPatch(L) { Object.keys(RT.st).forEach(function (k) { var s = RT.st[k], o; if (s.lap === L.lapId && s.ver !== s.saved && (o = rtObj(L, k))) o.html = s.html; }); return L; }
+  function rtSave(k) {
+    var s = RT.st[k];
+    clearTimeout(RT.timer[k]);
+    if (!s || s.ver === s.saved) return Promise.resolve();
+    var v = s.ver, p = k.split(':'), lk = lapKey();
+    return C.api('bl_lap_bab', { lapId: s.lap, op: 'isi', bab: +p[1], sub: p[2], html: s.html }).then(function (x) {
+      s.saved = Math.max(s.saved, v);
+      if (ui.blLap && lk && ui.blLap[lk] && ui.blLap[lk].lapId === s.lap) ui.blLap[lk] = rtPatch(x);
+    }, function (e) { H.toast(e.message, true); });
+  }
+  function rtFlush() { return Promise.all(Object.keys(RT.st).map(rtSave)); }
+  function rtInput(ed) {
+    var box = ed.closest('.rt'), k = rtKey(box.dataset.rtb, box.dataset.rts), old = RT.st[k] || { ver: 0, saved: 0 }, L = ui.blLap && ui.blLap[lapKey()];
+    if (!L) return;
+    RT.st[k] = { html: ed.innerHTML, ver: old.ver + 1, saved: old.saved, lap: L.lapId };
+    var o = rtObj(L, k); if (o) o.html = ed.innerHTML;
+    clearTimeout(RT.timer[k]);
+    RT.timer[k] = setTimeout(function () { rtSave(k); }, 2000);
+  }
+  /** Panggil API laporan setelah isian penyunting tersimpan */
+  function lapCall(action, data, opts) { return rtFlush().then(function () { return C.api(action, data, opts); }); }
+  function rtEditor(bi, sid, html, ed) {
+    if (!ed) return '<div class="rt-view">' + (html || '<p class="muted">' + esc(t('lap.belum_diisi')) + '</p>') + '</div>';
+    var b = function (cmd, key, inner) { return '<button type="button" class="rt-b" data-rtc="' + cmd + '" title="' + esc(t('lap.rt.' + key)) + '" aria-label="' + esc(t('lap.rt.' + key)) + '">' + inner + '</button>'; };
+    var sizes = [10, 11, 12, 14, 16].map(function (z) { return '<option value="' + z + '">' + z + '</option>'; }).join('');
+    return '<div class="rt" data-rtb="' + bi + '" data-rts="' + esc(sid || '') + '"><div class="rt-tb">' +
+      b('bold', 'tebal', '<b>B</b>') + b('italic', 'miring', '<i>I</i>') + b('underline', 'garis', '<u>U</u>') +
+      '<select class="rt-size" title="' + esc(t('lap.rt.ukuran')) + '" aria-label="' + esc(t('lap.rt.ukuran')) + '"><option value="">' + esc(t('lap.rt.ukuran')) + '</option>' + sizes + '</select><i class="rt-sep"></i>' +
+      b('justifyLeft', 'kiri', IKON.justifyLeft) + b('justifyCenter', 'tengah', IKON.justifyCenter) + b('justifyRight', 'kanan', IKON.justifyRight) + b('justifyFull', 'penuh', IKON.justifyFull) + '<i class="rt-sep"></i>' +
+      b('insertOrderedList', 'nomor', IKON.insertOrderedList) + b('insertUnorderedList', 'butir', IKON.insertUnorderedList) + b('outdent', 'outdent', IKON.outdent) + b('indent', 'indent', IKON.indent) + '<i class="rt-sep"></i>' +
+      b('tabel', 'tabel', IKON.tabel) + b('barisTambah', 'baris_tambah', IKON.barisTambah) + b('barisHapus', 'baris_hapus', IKON.barisHapus) + b('kolomTambah', 'kolom_tambah', IKON.kolomTambah) + b('kolomHapus', 'kolom_hapus', IKON.kolomHapus) + '<i class="rt-sep"></i>' +
+      '<button type="button" class="rt-b rt-data" data-rtc="data">' + esc(t('lap.sisip_tabel_data')) + '</button>' +
+      '</div><div class="rt-ed" contenteditable="true" spellcheck="true">' + (html || '<p><br></p>') + '</div></div>';
+  }
+  function rtRestore(ed) {
+    var s = window.getSelection();
+    if (RT.range && RT.range.ed === ed) { s.removeAllRanges(); s.addRange(RT.range.r); }
+    else if (!s.rangeCount || !ed.contains(s.anchorNode)) { var r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); s.removeAllRanges(); s.addRange(r); }
+  }
+  function rtCell(ed) {
+    var s = window.getSelection(); if (!s.rangeCount) return null;
+    var n = s.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement), c = el && el.closest('td,th');
+    return c && ed.contains(c) ? c : null;
+  }
+  function rtInsert(ed, html) {
+    ed.focus(); rtRestore(ed);
+    document.execCommand('insertHTML', false, html.replace('<table>', '<table data-baru="1">'));
+    var tb = ed.querySelector('table[data-baru]');
+    if (tb) {
+      tb.removeAttribute('data-baru');
+      var c = tb.querySelector('th,td'), r = document.createRange(), s = window.getSelection();
+      if (c) { r.selectNodeContents(c); r.collapse(true); s.removeAllRanges(); s.addRange(r); }
+    }
+    rtInput(ed);
+  }
+  function rtCmd(ed, cmd) {
+    ed.focus(); rtRestore(ed);
+    try { document.execCommand('styleWithCSS', false, false); } catch (e) { /* abaikan */ }
+    var c;
+    if (cmd === 'tabel') return rtTabelModal(ed);
+    if (cmd === 'data') return rtDataModal(ed);
+    if (cmd === 'barisTambah' || cmd === 'barisHapus' || cmd === 'kolomTambah' || cmd === 'kolomHapus') {
+      if (!(c = rtCell(ed))) return;
+      var tr = c.parentNode, tb = c.closest('table'), idx = c.cellIndex;
+      if (cmd === 'barisTambah') { var nr = document.createElement('tr'); for (var i = 0; i < tr.cells.length; i++) { var td = document.createElement('td'); td.innerHTML = '<br>'; nr.appendChild(td); } tr.parentNode.insertBefore(nr, tr.nextSibling); }
+      if (cmd === 'barisHapus') { if (tb.rows.length > 1) tr.remove(); else tb.remove(); }
+      if (cmd === 'kolomTambah') Array.prototype.forEach.call(tb.rows, function (r) { var ref = r.cells[idx], n = document.createElement(ref && ref.tagName === 'TH' ? 'th' : 'td'); n.innerHTML = '<br>'; r.insertBefore(n, ref ? ref.nextSibling : null); });
+      if (cmd === 'kolomHapus') { Array.prototype.forEach.call(tb.rows, function (r) { if (r.cells[idx]) r.cells[idx].remove(); }); if (!tb.rows[0] || !tb.rows[0].cells.length) tb.remove(); }
+    } else document.execCommand(cmd, false, null);
+    rtInput(ed);
+  }
+  function rtTabelModal(ed) {
+    var m = H.modal('<h3>' + esc(t('lap.rt.tabel')) + '</h3><div class="form"><label class="f">' + esc(t('lap.rt.baris')) + '<input class="inp" type="number" id="rtR" min="1" max="50" value="3"></label><label class="f">' + esc(t('lap.rt.kolom')) + '<input class="inp" type="number" id="rtC" min="1" max="12" value="3"></label></div><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="rtOK">' + esc(t('lap.rt.sisipkan')) + '</button></div>');
+    $('#rtOK', m).onclick = function () {
+      var r = Math.max(1, Math.min(50, +$('#rtR', m).value || 1)), c = Math.max(1, Math.min(12, +$('#rtC', m).value || 1)), h = '<table>';
+      for (var i = 0; i < r; i++) { h += '<tr>'; for (var j = 0; j < c; j++) h += i === 0 ? '<th><br></th>' : '<td><br></td>'; h += '</tr>'; }
+      m.remove(); rtInsert(ed, h + '</table><p><br></p>');
+    };
+  }
+  function rtDataModal(ed) {
+    var o = { jenis: 'stat' }, last = null;
+    var m = H.modal('<h3>' + esc(t('lap.sisip_tabel_data')) + '</h3><div id="tdBody"><p class="muted">' + esc(t('umum.memuat')) + '</p></div>');
+    m.querySelector('.modal').classList.add('wide');
+    var cek = function (name, list, pilih) {
+      return list.map(function (x) { var v = Array.isArray(x) ? x[0] : x, l = Array.isArray(x) ? x[1] : x; return '<label class="ck"><input type="checkbox" data-td="' + name + '" value="' + esc(v) + '"' + (pilih.indexOf(v) >= 0 ? ' checked' : '') + '> ' + esc(l) + '</label>'; }).join('');
+    };
+    var draw = function (x) {
+      last = x;
+      var p = x.pilih, op = x.opsi;
+      var h = '<div class="form"><label class="f">' + esc(t('lap.td.jenis')) + '<select class="inp" data-td="jenis">' + ['stat', 'detail', 'instansi', 'jabatan'].map(function (j) { return H.opt(j, t('lap.tbl_jenis.' + j), j === x.jenis); }).join('') + '</select></label>' +
+        (op.urut.length ? '<label class="f">' + esc(t('lap.td.urut')) + '<span class="row" style="gap:6px"><select class="inp" data-td="urut">' + op.urut.map(function (u) { return H.opt(u[0], u[1], u[0] === p.urut); }).join('') + '</select><select class="inp" data-td="arah">' + H.opt('turun', t('lap.td.turun'), p.arah === 'turun') + H.opt('naik', t('lap.td.naik'), p.arah === 'naik') + '</select></span></label>' : '') + '</div>';
+      h += '<div class="td-filter"><fieldset><legend>' + esc(t('lap.td.instansi')) + '</legend><p class="small muted">' + esc(t('lap.td.semua_ket')) + '</p>' + cek('instansi', op.instansi, p.instansi) + '</fieldset>' +
+        '<fieldset><legend>' + esc(t('lap.td.jabatan')) + '</legend>' + cek('jabatan', op.jabatan, p.jabatan) + '</fieldset>' +
+        '<fieldset><legend>' + esc(t('lap.td.kategori')) + '</legend>' + cek('kategori', op.kategori, p.kategori) + '</fieldset>' +
+        '<fieldset><legend>' + esc(t('lap.td.kolom')) + '</legend>' + cek('kolom', op.kolom, p.kolom) + '</fieldset></div>';
+      h += '<h4>' + esc(t('lap.td.pratinjau')) + '</h4><div class="rt-view td-prev">' + (x.html || '<p class="muted">' + esc(t('lap.td.kosong')) + '</p>') + '</div>' +
+        '<div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="tdOK"' + (x.html ? '' : ' disabled') + '>' + esc(t('lap.rt.sisipkan')) + '</button></div>';
+      $('#tdBody', m).innerHTML = h;
+      $('#tdOK', m).onclick = function () { m.remove(); rtInsert(ed, last.html + '<p><br></p>'); };
+    };
+    var load = function () { C.api('bl_lap_tabel', Object.assign(lapReq(), o)).then(draw, function (e) { H.toast(e.message, true); }); };
+    m.addEventListener('change', function (e) {
+      var k = e.target.dataset.td; if (!k) return;
+      var pick = function (n) { return Array.prototype.map.call(m.querySelectorAll('[data-td="' + n + '"]:checked'), function (x) { return x.value; }); };
+      o = { jenis: m.querySelector('[data-td="jenis"]').value, instansi: pick('instansi'), jabatan: pick('jabatan'), kategori: pick('kategori') };
+      if (k !== 'jenis') {
+        o.kolom = pick('kolom');
+        var u = m.querySelector('[data-td="urut"]'), ar = m.querySelector('[data-td="arah"]');
+        if (u) o.urut = u.value;
+        if (ar && k !== 'urut') o.arah = ar.value;
+      }
+      load();
+    });
+    load();
+  }
+  // peristiwa penyunting (sekali untuk seluruh halaman)
+  document.addEventListener('mousedown', function (e) {
+    var b = e.target.closest && e.target.closest('.rt-tb button'); if (!b) return;
+    e.preventDefault();
+    rtCmd(b.closest('.rt').querySelector('.rt-ed'), b.dataset.rtc);
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.rt-tb button'); if (!b || e.detail !== 0) return;   // papan ketik (Enter/Spasi)
+    rtCmd(b.closest('.rt').querySelector('.rt-ed'), b.dataset.rtc);
+  });
+  document.addEventListener('input', function (e) { var ed = e.target.closest && e.target.closest('.rt-ed'); if (ed) rtInput(ed); });
+  document.addEventListener('focusout', function (e) {
+    var ed = e.target.closest && e.target.closest('.rt-ed'); if (!ed) return;
+    var box = ed.closest('.rt'); rtSave(rtKey(box.dataset.rtb, box.dataset.rts));
+  });
+  document.addEventListener('selectionchange', function () {
+    var s = window.getSelection(); if (!s.rangeCount) return;
+    var n = s.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement), ed = el && el.closest && el.closest('.rt-ed');
+    if (ed) RT.range = { ed: ed, r: s.getRangeAt(0).cloneRange() };
+  });
+  window.addEventListener('beforeunload', function (e) {
+    var dirty = Object.keys(RT.st).some(function (k) { return RT.st[k].ver !== RT.st[k].saved; });
+    if (dirty) { rtFlush(); e.preventDefault(); e.returnValue = ''; }
+  });
+  window.addEventListener('hashchange', function () { rtFlush(); });
+
+  /* gambar: diperkecil di browser sebelum diunggah (JPEG) */
+  function gambarBlob(source, w, h, max) {
+    var sc = Math.min(1, max / Math.max(w, h)), cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(w * sc)); cv.height = Math.max(1, Math.round(h * sc));
+    var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(source, 0, 0, cv.width, cv.height);
+    return new Promise(function (res, rej) { cv.toBlob(function (b) { if (b) res(b); else rej(new Error(t('lap.galat.format'))); }, 'image/jpeg', 0.88); });
+  }
+  function fileGambar(file, max) {
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () { gambarBlob(img, img.naturalWidth, img.naturalHeight, max).then(function (b) { URL.revokeObjectURL(url); res(b); }, rej); };
+      img.onerror = function () { URL.revokeObjectURL(url); rej(new Error(t('lap.galat.format'))); };
+      img.src = url;
+    });
+  }
+  var PDFJS = null;
+  function pdfjs() {
+    if (!PDFJS) PDFJS = import(new URL('assets/pdfjs/pdf.min.js', location.href).href).then(function (lib) { lib.GlobalWorkerOptions.workerSrc = new URL('assets/pdfjs/pdf.worker.min.js', location.href).href; return lib; });
+    return PDFJS;
+  }
+  function jenisFile(f) {
+    var n = (f.name || '').toLowerCase();
+    if (f.type === 'application/pdf' || /\.pdf$/.test(n)) return 'pdf';
+    if (/^image\/(jpeg|png)$/.test(f.type) || /\.(jpe?g|png)$/.test(n)) return 'img';
+    return '';
+  }
+  function lampUnggah(lampId, files) {
+    var L = ui.blLap[lapKey()], lk = lapKey(), st = $('#lampSt-' + lampId);
+    var tulis = function (s) { if (st) st.textContent = s; };
+    var kirim = function (blob, extra) {
+      var fd = new FormData(); fd.append('lapId', L.lapId); fd.append('id', lampId); Object.keys(extra).forEach(function (k) { fd.append(k, extra[k]); }); fd.append('file', blob, 'g.jpg');
+      return C.api('bl_lap_lamp_unggah', null, { form: fd }).then(function (x) { ui.blLap[lk] = rtPatch(x); });
+    };
+    var chain = rtFlush();
+    Array.prototype.forEach.call(files, function (f) {
+      chain = chain.then(function () {
+        var j = jenisFile(f);
+        if (!j) throw new Error(t('lap.galat.format'));
+        if (f.size > 10485760) throw new Error(t('lap.galat.file_besar'));
+        if (j === 'img') { tulis(t('lap.memproses', { nama: f.name, n: 1, m: 1 })); return fileGambar(f, 2400).then(function (b) { return kirim(b, { jenis: 'img', nama: f.name }); }); }
+        var fid = Math.random().toString(16).slice(2, 12);
+        return f.arrayBuffer().then(function (buf) { return pdfjs().then(function (lib) { return lib.getDocument({ data: buf, isEvalSupported: false }).promise; }); }).then(function (doc) {
+          var n = doc.numPages, p = Promise.resolve();
+          for (var i = 1; i <= n; i++) (function (i) {
+            p = p.then(function () {
+              tulis(t('lap.memproses', { nama: f.name, n: i, m: n }));
+              return doc.getPage(i).then(function (pg) {
+                var vp0 = pg.getViewport({ scale: 1 }), sc = Math.min(3, 1654 / Math.max(vp0.width, vp0.height) * (vp0.width > vp0.height ? 1.414 : 1)), vp = pg.getViewport({ scale: sc });
+                var cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+                var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+                return pg.render({ canvasContext: g, viewport: vp }).promise.then(function () { return gambarBlob(cv, cv.width, cv.height, 2000); });
+              }).then(function (b) { return kirim(b, { jenis: 'pdf', nama: f.name, fileId: fid }); });
+            });
+          })(i);
+          return p;
+        }, function (e) { throw new Error(e && e.message && /^lap\./.test(e.message) ? e.message : t('lap.galat.pdf')); });
+      });
+    });
+    return chain.then(function () { tulis(''); H.toast(t('umum.tersimpan')); H.keepScroll(); App.render(); }, function (e) { tulis(''); H.toast(e.message, true); H.keepScroll(); App.render(); });
+  }
+
   function lapPage(arg) {
     var role = me().role;
     if (role !== 'fasil' && role !== 'pembina' && role !== 'admin') return H.denied();
@@ -313,33 +533,47 @@
       }).join('') + '</table></div>';
     }
     var key = m[1] + m[2], L = (ui.blLap || {})[key];
-    if (!L) { C.api('bl_lap_get', m[1] ? { lapId: +m[2] } : { kegId: +m[2] }).then(function (x) { ui.blLap = ui.blLap || {}; ui.blLap[key] = x; App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
-    var f = L.f, hs = L.hasil, ed = L.hak.sunting, ro = ed ? '' : ' readonly disabled';
-    var ta = function (k, rows, ph) { return '<textarea class="inp" rows="' + rows + '" data-lap="' + k + '" placeholder="' + esc(ph ? t(ph) : '') + '"' + ro + '>' + esc(f[k]) + '</textarea>'; };
-    var tbl = function (head, rows, numFrom) { return '<div class="tbl"><table><tr>' + head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr>' + rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + (i >= numFrom ? ' class="num"' : '') + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>'; };
+    if (!L) { C.api('bl_lap_get', m[1] ? { lapId: +m[2] } : { kegId: +m[2] }).then(function (x) { ui.blLap = ui.blLap || {}; ui.blLap[key] = rtPatch(x); App.render(); }, function (e) { H.toast(e.message, true); }); return H.loadingCard(); }
+    var f = L.f, ed = L.hak.sunting, ro = ed ? '' : ' readonly disabled', s = L.sampul;
     var dk = L.dokInfo, h = '<p><a href="#bl-laporan">← ' + esc(t('blapp.menu_laporan')) + '</a></p><div class="row"><h2 class="sp">' + esc(L.title) + '</h2>' + dokChip(L.tampil) + '</div>';
     if (dk) h += '<p class="small">' + esc(t('dok.nomor')) + ': <b>' + esc(dk.nomor) + '</b> · ' + esc(t('dok.kode_verifikasi')) + ': <code>' + esc(dk.kode) + '</code>' + (dk.akses ? ' · ' + esc(t('dok.kode_akses')) + ': <code>' + esc(dk.akses) + '</code>' : '') + '</p>';
     if (L.catatan && L.status === 'draf') h += '<div class="note warn"><b>' + esc(t('dok.catatan_fasil')) + ':</b> <span style="white-space:pre-line">' + esc(L.catatan) + '</span></div>';
-    h += '<div class="row" style="gap:8px;margin-bottom:12px"><a class="btn" href="berkas.php?j=lap&f=pdf&lap=' + L.lapId + '">' + esc(t('lap.unduh_pdf')) + '</a><a class="btn o" href="berkas.php?j=lap&f=docx&lap=' + L.lapId + '">' + esc(t('lap.unduh_word')) + '</a>' + (ed ? '<span class="small muted">' + esc(t('lap.tersimpan_otomatis')) + '</span>' : '') + '</div>';
+    h += '<div class="row" style="gap:8px;margin-bottom:12px"><a class="btn" data-act="blLapUnduh" href="berkas.php?j=lap&f=pdf&lap=' + L.lapId + '">' + esc(t('lap.unduh_pdf')) + '</a><a class="btn o" data-act="blLapUnduh" href="berkas.php?j=lap&f=docx&lap=' + L.lapId + '">' + esc(t('lap.unduh_word')) + '</a>' + (ed ? '<span class="small muted">' + esc(t('lap.tersimpan_otomatis')) + '</span>' : '') + '</div>';
     // tindakan pengesahan / pencabutan / penggantian
     var kendaliTeks = L.kendali ? t(L.kendali === 'tidak' ? 'dok.tidak_terkendali' : 'dok.terkendali') : '–';
     var berlakuTeks = L.berlakuMode === 'cabut' ? t('dok.hingga_dicabut') : L.berlakuMode === 'tanggal' ? t('dok.sampai_tanggal') + ' ' + (L.berlakuSampai || '–') : '–';
     if (L.hak.sahkan) h += '<div class="card"><h3>' + esc(t('dok.sahkan')) + '</h3><p class="small">' + esc(t('dok.sifat_dokumen')) + ': <b>' + esc(t('dok.' + L.sifat)) + ' – ' + esc(kendaliTeks) + '</b> · ' + esc(t('dok.masa_berlaku')) + ': <b>' + esc(berlakuTeks) + '</b></p><div class="row" style="gap:8px"><button class="btn" data-act="blLapSahkan">' + esc(t('dok.sahkan')) + '</button><button class="btn o" data-act="blLapKembali">' + esc(t('dok.kembalikan')) + '</button></div></div>';
     if (L.hak.ubahDok) h += '<div class="card"><div class="row" style="gap:8px"><button class="btn o" data-act="blLapGanti">' + esc(t('dok.ganti')) + '</button><button class="btn d" data-act="blLapCabut">' + esc(t('dok.cabut')) + '</button></div></div>';
-    h += '<div class="card"><h3>' + esc(t('lap.identitas')) + '</h3><div class="tbl"><table>' + L.ident.map(function (r) {
-      var isP = r[0] === t('lap.i_pelaksana');
-      return '<tr><th style="width:200px">' + esc(r[0]) + '</th><td' + (isP && ed ? ' class="in"' : '') + '>' + (isP && ed ? '<input class="cell" data-lap="pelaksana" value="' + esc(f.pelaksana) + '">' : esc(r[1] || '–')) + '</td></tr>';
-    }).join('') + '</table></div>' + (ed ? '<p class="small muted">' + esc(t('lap.identitas_ket')) + '</p>' : '') + '</div>';
-    h += '<div class="card"><h3>' + esc(t('lap.sec_a')) + '</h3>' + (ed ? '<div class="row" style="gap:8px;margin-bottom:8px"><label class="small">' + esc(t('lap.unggah_tor')) + ' <input type="file" id="blTor" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>' + (L.hasTor ? H.chip(t('lap.tor_ada'), 'ok') : '') + '</div><p class="small muted">' + esc(t('lap.tor_ket')) + '</p>' : '') + ta('pendahuluan', 10) + '</div>';
-    h += '<div class="card"><div class="row"><h3 class="sp">' + esc(t('lap.sec_b')) + '</h3>' + (ed ? '<button class="btn o s" data-act="blLapMek">' + esc(t('lap.susun_ulang')) + '</button>' : '') + '</div>' + (ed ? '<p class="small muted">' + esc(t('lap.mek_ket')) + '</p>' : '') + ta('mekanisme', 14) + '</div>';
-    h += '<div class="card"><h3>' + esc(t('lap.sec_c')) + '</h3><p class="small muted">' + esc(t('lap.hasil_ket')) + '</p><p>' + esc(hs.pembuka) + '</p><ol style="padding-left:20px">' +
-      '<li><p>' + esc(hs.p1) + '</p><p class="small"><i>' + esc(t('lap.menurut_instansi')) + '</i></p><ul class="small">' + hs.inst.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul><p class="small"><i>' + esc(t('lap.menurut_profesi')) + '</i></p><ul class="small">' + hs.prof.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></li>' +
-      '<li><p>' + esc(hs.p2) + '</p>' + tbl([t('lap.t_komponen'), t('lap.t_n'), t('lap.t_rata'), t('lap.t_min'), t('lap.t_max')], hs.stat, 1) + '<p>' + esc(hs.p2b) + '</p>' +
-      tbl([t('lap.t_no'), t('lap.t_nama'), t('lap.t_instansi'), t('lap.t_pre'), t('lap.t_post'), t('lap.t_progres'), t('lap.t_praktik'), t('lap.t_sikap'), t('lap.t_skor'), t('lap.t_kategori')], hs.detail, 3) + '</li>' +
-      '<li><p>' + esc(hs.p3) + '</p><p class="small muted"><i>' + esc(hs.kat_ket) + '</i></p></li></ol></div>';
-    h += '<div class="card"><h3>' + esc(t('lap.sec_d')) + '</h3>' + ta('kendala', 6, 'lap.ph_butir') + '</div>';
-    h += '<div class="card"><h3>' + esc(t('lap.sec_e')) + '</h3>' + ta('kesimpulan', 6, 'lap.ph_butir') + '</div>';
-    h += '<div class="card"><h3>' + esc(t('lap.sec_f')) + '</h3>' + ta('rekomendasi', 6, 'lap.ph_butir') + '</div>';
+    // sampul
+    var inp = function (k, label) { return '<label class="f">' + esc(label) + '<input class="inp" data-lap="' + k + '" value="' + esc(s[k] || '') + '"' + ro + '></label>'; };
+    h += '<div class="card"><h3>' + esc(t('lap.sampul')) + '</h3><div class="grid g2" style="grid-template-columns:1fr 220px;align-items:start"><div><div class="form">' + inp('judulLaporan', t('lap.judul_laporan')) + inp('judulKegiatan', t('lap.judul_kegiatan')) + '</div>' +
+      '<div class="small" style="margin:12px 0 2px"><b>' + esc(t('lap.disusun_oleh')) + '</b></div><div class="form">' + inp('nama', t('lap.nama_penyusun')) + inp('jabatan', t('lap.jabatan_penyusun')) + '</div></div>' +
+      '<div><div class="small"><b>' + esc(t('lap.foto_sampul')) + '</b></div>' + (s.foto ? '<img class="lap-foto" src="' + esc(lapImg(L, s.foto)) + '" alt="">' : '<div class="lap-foto kosong"></div>') +
+      (ed ? '<input type="file" id="blLapFoto" accept="image/jpeg,image/png" style="margin-top:6px">' + (s.foto ? '<button class="btn o s" data-act="blLapFotoHapus" style="margin-top:6px">' + esc(t('lap.hapus_foto')) + '</button>' : '') + '<p class="small muted">' + esc(t('lap.foto_ket')) + '</p>' : '') + '</div></div></div>';
+    // bab & sub-bab
+    L.bab.forEach(function (b, bi) {
+      h += '<div class="card lap-bab"><h3>' + esc(b.judul) + '</h3>';
+      if (bi === 0 && ed) h += '<div class="row" style="gap:8px;margin-bottom:8px"><label class="small">' + esc(t('lap.unggah_tor')) + ' <input type="file" id="blTor" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>' + (L.hasTor ? H.chip(t('lap.tor_ada'), 'ok') : '') + '</div><p class="small muted">' + esc(t('lap.tor_ket')) + '</p>';
+      if (ed || b.html || !b.sub.length) h += rtEditor(bi, '', b.html, ed);
+      b.sub.forEach(function (sb, j) {
+        h += '<div class="lap-sub"><div class="row"><h4 class="sp">' + (j + 1) + '. ' + esc(sb.judul) + '</h4>' + (ed ? '<button class="btn o s" data-act="blSubNama" data-bab="' + bi + '" data-id="' + esc(sb.id) + '">' + esc(t('lap.ubah_nama')) + '</button><button class="btn d s" data-act="blSubHapus" data-bab="' + bi + '" data-id="' + esc(sb.id) + '">' + esc(t('lap.hapus_sub')) + '</button>' : '') + '</div>' + rtEditor(bi, sb.id, sb.html, ed) + '</div>';
+      });
+      if (ed) h += '<button class="btn o s" data-act="blSubTambah" data-bab="' + bi + '">+ ' + esc(t('lap.tambah_sub')) + '</button>';
+      h += '</div>';
+    });
+    // lampiran
+    h += '<div class="card"><h3>' + esc(t('lap.lampiran')) + '</h3>' + (ed ? '<p class="small muted">' + esc(t('lap.lamp_ket')) + '</p>' : '');
+    L.lampiran.forEach(function (lp, j) {
+      h += '<div class="lap-lamp"><div class="row"><b>' + esc(t('lap.lampiran').toUpperCase()) + ' ' + romawi(j + 1) + '.</b>' + (ed ? '<input class="inp sp" data-lampjudul="' + esc(lp.id) + '" value="' + esc(lp.judul) + '" aria-label="' + esc(t('lap.judul_lampiran')) + '"><button class="btn d s" data-act="blLampHapus" data-id="' + esc(lp.id) + '">' + esc(t('lap.hapus_lampiran')) + '</button>' : '<span class="sp">' + esc(lp.judul) + '</span>') + '</div>';
+      h += '<div class="lamp-files">' + lp.files.map(function (fl) {
+        return '<div class="lamp-file"><div class="row"><span class="small sp">' + esc(fl.nama) + (fl.jenis === 'pdf' ? ' · ' + esc(t('lap.n_halaman', { n: fl.hal.length })) : '') + '</span>' + (ed ? '<button class="btn o s" data-act="blLampFileHapus" data-id="' + esc(lp.id) + '" data-file="' + esc(fl.id) + '">' + esc(t('lap.hapus_file')) + '</button>' : '') + '</div><div class="lamp-thumbs">' +
+          fl.hal.map(function (g) { return '<img loading="lazy" src="' + esc(lapImg(L, g.f)) + '" alt="">'; }).join('') + '</div></div>';
+      }).join('') + '</div>';
+      if (ed) h += '<label class="small">' + esc(t('lap.unggah_file')) + ' <input type="file" multiple data-lampup="' + esc(lp.id) + '" accept="image/jpeg,image/png,application/pdf,.pdf,.jpg,.jpeg,.png"></label> <span class="small muted" id="lampSt-' + esc(lp.id) + '"></span>';
+      h += '</div>';
+    });
+    if (ed) h += '<div class="row" style="gap:8px;margin-top:8px"><input class="inp sp" id="lampBaru" placeholder="' + esc(t('lap.judul_lampiran')) + '" aria-label="' + esc(t('lap.judul_lampiran')) + '"><button class="btn o" data-act="blLampTambah">+ ' + esc(t('lap.tambah_lampiran')) + '</button></div>';
+    h += '</div>';
     h += '<div class="card"><h3>' + esc(t('lap.tanda_tangan')) + '</h3><div class="form"><label class="f">' + esc(t('lap.ttd_tempat')) + '<input class="inp" data-lap="ttdTempat" value="' + esc(f.ttdTempat) + '"' + ro + '></label><label class="f">' + esc(t('lap.ttd_tanggal')) + '<input class="inp" type="date" data-lap="ttdTanggal" value="' + esc(f.ttdTanggal) + '"' + ro + '></label>' +
       '<label class="f">' + esc(t('lap.ttd_pembina_pilih')) + (ed ? '<select class="inp" data-lap="pembinaId">' + H.opt('', t('lap.pilih_pembina')) + L.pembinaList.map(function (p) { return H.opt(p.id, p.name, p.id === f.pembinaId); }).join('') + '</select>' : '<input class="inp" value="' + esc(L.pembinaNama || '–') + '" readonly disabled>') + '</label></div>' + (ed ? '<p class="small muted">' + esc(t('lap.ttd_ket')) + '</p>' : '') + '</div>';
     if (ed) {
@@ -356,7 +590,15 @@
   function lapReq() { var k = lapKey(), L = (ui.blLap || {})[k]; return L ? { lapId: L.lapId } : {}; }
   function lapAct(action, extra, msg) {
     var k = lapKey();
-    return C.api(action, Object.assign(lapReq(), extra || {})).then(function (x) { ui.blLap[k] = x; ui.blLapList = null; if (msg) H.toast(msg); H.keepScroll(); App.render(); return x; }, function (e) { H.toast(e.message, true); });
+    return lapCall(action, Object.assign(lapReq(), extra || {})).then(function (x) { ui.blLap[k] = rtPatch(x); ui.blLapList = null; if (msg) H.toast(msg); H.keepScroll(); App.render(); return x; }, function (e) { H.toast(e.message, true); });
+  }
+  function namaModal(title, label, val, fn) {
+    var mm = H.modal('<h3>' + esc(title) + '</h3><label class="f">' + esc(label) + '<input class="inp" id="nmV" maxlength="200" value="' + esc(val || '') + '"></label><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="nmOK"' + (val ? '' : ' disabled') + '>' + esc(title) + '</button></div>');
+    var w = $('#nmV', mm), ok = $('#nmOK', mm);
+    w.oninput = function () { ok.disabled = !w.value.trim(); };
+    w.onkeydown = function (e) { if (e.key === 'Enter' && w.value.trim()) ok.click(); };
+    ok.onclick = function () { if (!w.value.trim()) return; mm.remove(); fn(w.value.trim()); };
+    w.focus();
   }
   function alasanModal(title, label, min, fn) {
     var mm = H.modal('<h3>' + esc(title) + '</h3><label class="f">' + esc(label) + '<textarea class="inp" rows="3" id="dkWhy" maxlength="1000"></textarea></label><div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn o" data-close>' + esc(t('umum.batal')) + '</button><button class="btn" id="dkOK" disabled>' + esc(title) + '</button></div>');
@@ -577,7 +819,23 @@
       delModal(t('blapp.hapus_keg_judul'), t('blapp.hapus_keg_ket'), p.name + (p.instansi ? ' – ' + p.instansi : ''), function (why) { ui.blAudit = null; act('bl_pes_del', { id: p.id, alasan: why }, t('blapp.peserta_terhapus')); });
     },
     blUserReset: function (el) { confirmBox(t('admin.reset_sandi'), t('blapp.konfirm_reset'), t('admin.reset_sandi'), function () { act('bl_user_reset', { id: +el.dataset.id }).then(credModal); }); },
-    blLapMek: function () { confirmBox(t('lap.susun_ulang'), t('lap.konfirm_susun_ulang'), t('lap.susun_ulang'), function () { lapAct('bl_lap_mek', {}, t('umum.tersimpan')); }); },
+    blLapUnduh: function (el) { rtFlush().then(function () { location.href = el.href; }); },
+    blSubTambah: function (el) { namaModal(t('lap.tambah_sub'), t('lap.nama_sub'), '', function (v) { lapAct('bl_lap_bab', { op: 'tambah', bab: +el.dataset.bab, judul: v }, t('umum.tersimpan')); }); },
+    blSubNama: function (el) {
+      var L = ui.blLap[lapKey()], sb = L.bab[+el.dataset.bab].sub.filter(function (x) { return x.id === el.dataset.id; })[0];
+      namaModal(t('lap.ubah_nama'), t('lap.nama_sub'), sb.judul, function (v) { lapAct('bl_lap_bab', { op: 'nama', bab: +el.dataset.bab, sub: sb.id, judul: v }, t('umum.tersimpan')); });
+    },
+    blSubHapus: function (el) {
+      var L = ui.blLap[lapKey()], sb = L.bab[+el.dataset.bab].sub.filter(function (x) { return x.id === el.dataset.id; })[0];
+      confirmBox(t('lap.hapus_sub'), t('lap.konfirm_hapus_sub', { nama: sb.judul }), t('lap.hapus_sub'), function () { delete RT.st[rtKey(el.dataset.bab, sb.id)]; lapAct('bl_lap_bab', { op: 'hapus', bab: +el.dataset.bab, sub: sb.id }, t('sd.terhapus')); }, true);
+    },
+    blLapFotoHapus: function () { lapAct('bl_lap_foto', { hapus: 1 }, t('sd.terhapus')); },
+    blLampTambah: function () { var v = ($('#lampBaru') || {}).value || ''; if (!v.trim()) return $('#lampBaru').focus(); lapAct('bl_lap_lamp', { op: 'tambah', judul: v.trim() }, t('umum.ditambahkan')); },
+    blLampHapus: function (el) {
+      var lp = ui.blLap[lapKey()].lampiran.filter(function (x) { return x.id === el.dataset.id; })[0];
+      confirmBox(t('lap.hapus_lampiran'), t('lap.konfirm_hapus_lampiran', { judul: lp.judul }), t('lap.hapus_lampiran'), function () { lapAct('bl_lap_lamp', { op: 'hapus', id: lp.id }, t('sd.terhapus')); }, true);
+    },
+    blLampFileHapus: function (el) { lapAct('bl_lap_lamp', { op: 'hapusFile', id: el.dataset.id, file: el.dataset.file }, t('sd.terhapus')); },
     blLapTerbit: function () { var L = ui.blLap[lapKey()]; lapAct('bl_lap_terbit', {}, t('dok.dikirim', { pembina: (L.pembinaList.filter(function (p) { return p.id === L.f.pembinaId; })[0] || {}).name || '' })); },
     blLapSahkan: function () { var L = ui.blLap[lapKey()]; confirmBox(t('dok.sahkan'), L.title, t('dok.sahkan'), function () { lapAct('bl_lap_sahkan', {}, t('dok.disahkan')); }); },
     blLapKembali: function () { alasanModal(t('dok.kembalikan'), t('dok.catatan_fasil'), 1, function (v) { lapAct('bl_lap_kembali', { catatan: v }, t('dok.dikembalikan')); }); },
@@ -606,7 +864,34 @@
     var id = kegId();
     if (d.lap) {
       var lid = lapKey();
-      C.api('bl_lap_save', Object.assign(lapReq(), { k: d.lap, v: el.value })).then(function (x) { ui.blLap[lid] = x; if (['pelaksana', 'pembinaId', 'kendali', 'berlakuMode', 'berlakuSampai'].indexOf(d.lap) >= 0) { H.keepScroll(); App.render(); } H.toast(t('umum.tersimpan')); }, function (e) { H.toast(e.message, true); });
+      lapCall('bl_lap_save', Object.assign(lapReq(), { k: d.lap, v: el.value })).then(function (x) { ui.blLap[lid] = rtPatch(x); if (['pembinaId', 'kendali', 'berlakuMode', 'berlakuSampai'].indexOf(d.lap) >= 0) { H.keepScroll(); App.render(); } H.toast(t('umum.tersimpan')); }, function (e) { H.toast(e.message, true); });
+      return true;
+    }
+    if (el.classList && el.classList.contains('rt-size')) {
+      var red = el.closest('.rt').querySelector('.rt-ed'), z = el.value;
+      el.value = '';
+      if (!z) return true;
+      red.focus(); rtRestore(red);
+      document.execCommand('styleWithCSS', false, false);
+      document.execCommand('fontSize', false, '7');
+      red.querySelectorAll('font[size="7"]').forEach(function (fo) { var sp = document.createElement('span'); sp.style.fontSize = z + 'pt'; while (fo.firstChild) sp.appendChild(fo.firstChild); fo.parentNode.replaceChild(sp, fo); });
+      rtInput(red);
+      return true;
+    }
+    if (d.lampjudul !== undefined) {
+      if (!el.value.trim()) { H.keepScroll(); App.render(); return true; }
+      lapAct('bl_lap_lamp', { op: 'judul', id: d.lampjudul, judul: el.value.trim() }, t('umum.tersimpan'));
+      return true;
+    }
+    if (d.lampup !== undefined && el.files && el.files.length) { lampUnggah(d.lampup, el.files); return true; }
+    if (el.id === 'blLapFoto' && el.files && el.files[0]) {
+      var ff = el.files[0], flid = lapKey();
+      if (jenisFile(ff) !== 'img') { H.toast(t('lap.galat.format'), true); el.value = ''; return true; }
+      if (ff.size > 10485760) { H.toast(t('lap.galat.file_besar'), true); el.value = ''; return true; }
+      fileGambar(ff, 2400).then(function (b) {
+        var fd = new FormData(); fd.append('lapId', ui.blLap[flid].lapId); fd.append('file', b, 'foto.jpg');
+        return lapCall('bl_lap_foto', null, { form: fd });
+      }).then(function (x) { ui.blLap[flid] = rtPatch(x); H.toast(t('umum.tersimpan')); H.keepScroll(); App.render(); }, function (e) { H.toast(e.message, true); el.value = ''; });
       return true;
     }
     if (d.jenis) {
@@ -615,7 +900,7 @@
     }
     if (el.id === 'blTor' && el.files && el.files[0]) {
       var tid = lapKey(), tfd = new FormData(); tfd.append('tor', el.files[0]); tfd.append('lapId', ui.blLap[tid].lapId);
-      C.api('bl_lap_tor', null, { form: tfd }).then(function (x) { ui.blLap[tid] = x.lap; H.toast(t(x.found ? 'lap.tor_diambil' : 'lap.tor_tidak_ditemukan'), !x.found); H.keepScroll(); App.render(); }, function (e) { H.toast(e.message, true); el.value = ''; });
+      lapCall('bl_lap_tor', null, { form: tfd }).then(function (x) { ui.blLap[tid] = rtPatch(x.lap); H.toast(t(x.found ? 'lap.tor_diambil' : 'lap.tor_tidak_ditemukan'), !x.found); H.keepScroll(); App.render(); }, function (e) { H.toast(e.message, true); el.value = ''; });
       return true;
     }
     if (d.bluser) { H.keepScroll(); act('bl_user_update', { id: +d.bluser, k: d.k, v: el.value }, t('umum.tersimpan')); return true; }

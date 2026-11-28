@@ -708,7 +708,11 @@ function bl_api(string $a, array $d, array $u)
             return $out;
         case 'bl_lap_get':
         case 'bl_lap_save':
-        case 'bl_lap_mek':
+        case 'bl_lap_bab':
+        case 'bl_lap_foto':
+        case 'bl_lap_lamp':
+        case 'bl_lap_lamp_unggah':
+        case 'bl_lap_tabel':
         case 'bl_lap_tor':
         case 'bl_lap_terbit':
         case 'bl_lap_sahkan':
@@ -726,12 +730,21 @@ function bl_api(string $a, array $d, array $u)
             }
             $hak = bl_lap_hak($u, $r, $k);
             need($hak['lihat']);
+            if ($a === 'bl_lap_tabel') return bl_lap_tabel($k, $d);
             if ($a === 'bl_lap_save') {
                 need($hak['sunting']);
-                $map = ['pelaksana' => ['pelaksana', 200], 'pendahuluan' => ['pendahuluan', 20000], 'mekanisme' => ['mekanisme', 20000], 'kendala' => ['kendala', 20000], 'kesimpulan' => ['kesimpulan', 20000],
-                    'rekomendasi' => ['rekomendasi', 20000], 'ttdTempat' => ['ttd_tempat', 100], 'ttdTanggal' => ['ttd_tanggal', 10], 'pembinaId' => ['pembina_id', 0],
-                    'kendali' => ['kendali', 0], 'berlakuMode' => ['berlaku_mode', 0], 'berlakuSampai' => ['berlaku_sampai', 10]];
                 $kk = (string)($d['k'] ?? '');
+                $sampulKeys = ['judulLaporan' => 300, 'judulKegiatan' => 300, 'nama' => 200, 'jabatan' => 200];
+                if (isset($sampulKeys[$kk])) {
+                    $v = trim(preg_replace('/\s+/u', ' ', (string)($d['v'] ?? '')));
+                    need(mb_strlen($v) <= $sampulKeys[$kk], 'lap.galat.terlalu_panjang', 400);
+                    $S = bl_lap_struktur($r, $k);
+                    $S['sampul'][$kk] = $v;
+                    bl_lap_simpan($r, $S);
+                    return bl_lap_out($u, bl_lap_by_id((int)$r['id']), $k);
+                }
+                $map = ['ttdTempat' => ['ttd_tempat', 100], 'ttdTanggal' => ['ttd_tanggal', 10], 'pembinaId' => ['pembina_id', 0],
+                    'kendali' => ['kendali', 0], 'berlakuMode' => ['berlaku_mode', 0], 'berlakuSampai' => ['berlaku_sampai', 10]];
                 need(isset($map[$kk]), 'galat.data_tidak_valid', 400);
                 [$col, $max] = $map[$kk];
                 if ($kk === 'pembinaId') {
@@ -749,9 +762,103 @@ function bl_api(string $a, array $d, array $u)
                     need(mb_strlen($v) <= $max, 'lap.galat.terlalu_panjang', 400);
                 }
                 q("UPDATE bl_laporan SET $col = ?, updated_at = ? WHERE id = ?", [$v, now_str(), $r['id']]);
-            } elseif ($a === 'bl_lap_mek') {
+            } elseif ($a === 'bl_lap_bab') {
+                // bab & sub-bab: isi (HTML dibersihkan), tambah, ubah nama, hapus sub-bab
                 need($hak['sunting']);
-                q('UPDATE bl_laporan SET mekanisme = ?, updated_at = ? WHERE id = ?', [bl_lap_mekanisme_auto($k), now_str(), $r['id']]);
+                $S = bl_lap_struktur($r, $k);
+                $bi = (int)($d['bab'] ?? -1);
+                need(isset($S['bab'][$bi]), 'galat.data_tidak_valid', 400);
+                $op = (string)($d['op'] ?? '');
+                $sid = (string)($d['sub'] ?? '');
+                $si = null;
+                foreach ($S['bab'][$bi]['sub'] as $i => $x) if ($x['id'] === $sid) $si = $i;
+                $judul = trim(preg_replace('/\s+/u', ' ', (string)($d['judul'] ?? '')));
+                if ($op === 'isi') {
+                    $raw = (string)($d['html'] ?? '');
+                    need(strlen($raw) <= BL_RT_MAX * 3, 'lap.galat.terlalu_panjang', 400);
+                    $h = bl_rt_clean($raw);
+                    need(strlen($h) <= BL_RT_MAX, 'lap.galat.terlalu_panjang', 400);
+                    if ($sid === '') $S['bab'][$bi]['html'] = $h;
+                    else { need($si !== null, 'galat.data_tidak_valid', 400); $S['bab'][$bi]['sub'][$si]['html'] = $h; }
+                } elseif ($op === 'tambah') {
+                    need($judul !== '' && mb_strlen($judul) <= 200 && count($S['bab'][$bi]['sub']) < 30, 'galat.data_tidak_valid', 400);
+                    $S['bab'][$bi]['sub'][] = ['id' => bl_lap_uid(), 'judul' => $judul, 'html' => ''];
+                } elseif ($op === 'nama') {
+                    need($si !== null && $judul !== '' && mb_strlen($judul) <= 200, 'galat.data_tidak_valid', 400);
+                    $S['bab'][$bi]['sub'][$si]['judul'] = $judul;
+                } elseif ($op === 'hapus') {
+                    need($si !== null, 'galat.data_tidak_valid', 400);
+                    array_splice($S['bab'][$bi]['sub'], $si, 1);
+                } else fail('galat.data_tidak_valid', [], 400);
+                bl_lap_simpan($r, $S);
+            } elseif ($a === 'bl_lap_foto') {
+                need($hak['sunting']);
+                $S = bl_lap_struktur($r, $k);
+                $lama = (string)($S['sampul']['foto'] ?? '');
+                if (!empty($d['hapus'])) $S['sampul']['foto'] = null;
+                else {
+                    need(isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name']), 'galat.unggah', 400);
+                    need($_FILES['file']['size'] <= BL_LAP_FILE_MAX, 'lap.galat.file_besar', 400);
+                    [$file] = bl_lap_simpan_gambar((string)file_get_contents($_FILES['file']['tmp_name']), (int)$r['id'], 2400);
+                    $S['sampul']['foto'] = $file;
+                }
+                bl_lap_simpan($r, $S);
+                bl_lap_hapus_berkas($r, $lama);
+            } elseif ($a === 'bl_lap_lamp') {
+                // lampiran: tambah, ubah judul, hapus lampiran, hapus satu file
+                need($hak['sunting']);
+                $S = bl_lap_struktur($r, $k);
+                $op = (string)($d['op'] ?? '');
+                $id = (string)($d['id'] ?? '');
+                $li = null;
+                foreach ($S['lampiran'] as $i => $x) if ($x['id'] === $id) $li = $i;
+                $judul = trim(preg_replace('/\s+/u', ' ', (string)($d['judul'] ?? '')));
+                $buang = [];
+                if ($op === 'tambah') {
+                    need($judul !== '' && mb_strlen($judul) <= 300 && count($S['lampiran']) < 30, 'galat.data_tidak_valid', 400);
+                    $S['lampiran'][] = ['id' => bl_lap_uid(), 'judul' => $judul, 'files' => []];
+                } elseif ($op === 'judul') {
+                    need($li !== null && $judul !== '' && mb_strlen($judul) <= 300, 'galat.data_tidak_valid', 400);
+                    $S['lampiran'][$li]['judul'] = $judul;
+                } elseif ($op === 'hapus') {
+                    need($li !== null, 'galat.data_tidak_valid', 400);
+                    foreach ($S['lampiran'][$li]['files'] as $f) foreach ($f['hal'] as $h) $buang[] = $h['f'];
+                    array_splice($S['lampiran'], $li, 1);
+                } elseif ($op === 'hapusFile') {
+                    need($li !== null, 'galat.data_tidak_valid', 400);
+                    $fid = (string)($d['file'] ?? '');
+                    $S['lampiran'][$li]['files'] = array_values(array_filter($S['lampiran'][$li]['files'], function ($f) use ($fid, &$buang) {
+                        if ($f['id'] !== $fid) return true;
+                        foreach ($f['hal'] as $h) $buang[] = $h['f'];
+                        return false;
+                    }));
+                } else fail('galat.data_tidak_valid', [], 400);
+                bl_lap_simpan($r, $S);
+                foreach ($buang as $f) bl_lap_hapus_berkas($r, $f);
+            } elseif ($a === 'bl_lap_lamp_unggah') {
+                // satu gambar per permintaan: foto (jenis img) atau satu halaman PDF yang sudah diubah menjadi gambar di browser (jenis pdf)
+                need($hak['sunting']);
+                need(isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name']), 'galat.unggah', 400);
+                need($_FILES['file']['size'] <= BL_LAP_FILE_MAX, 'lap.galat.file_besar', 400);
+                $S = bl_lap_struktur($r, $k);
+                $li = null;
+                foreach ($S['lampiran'] as $i => $x) if ($x['id'] === (string)($d['id'] ?? '')) $li = $i;
+                need($li !== null, 'galat.data_tidak_valid', 400);
+                $total = 0;
+                foreach ($S['lampiran'] as $x) foreach ($x['files'] as $f) $total += count($f['hal']);
+                need($total < BL_LAP_GAMBAR_MAX, 'galat.data_tidak_valid', 400);
+                $jenis = ($d['jenis'] ?? '') === 'pdf' ? 'pdf' : 'img';
+                [$file, $w, $h] = bl_lap_simpan_gambar((string)file_get_contents($_FILES['file']['tmp_name']), (int)$r['id'], $jenis === 'pdf' ? 2000 : 2400);
+                $fid = (string)($d['fileId'] ?? '');
+                $fi = null;
+                foreach ($S['lampiran'][$li]['files'] as $i => $f) if ($f['id'] === $fid) $fi = $i;
+                if ($fi === null) {
+                    $nama = trim(preg_replace('/[\x00-\x1F]/u', '', (string)($d['nama'] ?? ''))) ?: 'berkas';
+                    $S['lampiran'][$li]['files'][] = ['id' => $fid !== '' ? substr(preg_replace('/[^a-z0-9]/', '', $fid), 0, 16) : bl_lap_uid(), 'nama' => mb_substr($nama, 0, 200), 'jenis' => $jenis, 'hal' => []];
+                    $fi = count($S['lampiran'][$li]['files']) - 1;
+                }
+                $S['lampiran'][$li]['files'][$fi]['hal'][] = ['f' => $file, 'w' => $w, 'h' => $h];
+                bl_lap_simpan($r, $S);
             } elseif ($a === 'bl_lap_tor') {
                 need($hak['sunting']);
                 need(isset($_FILES['tor']) && is_uploaded_file($_FILES['tor']['tmp_name']), 'galat.unggah', 400);
@@ -764,7 +871,14 @@ function bl_api(string $a, array $d, array $u)
                 $file = 'tor_' . date('YmdHis') . '_' . bin2hex(random_bytes(6)) . '.docx';
                 copy($tmp, data_dir('tor') . '/' . $file);
                 $txt = bl_tor_pendahuluan(data_dir('tor') . '/' . $file);
-                q('UPDATE bl_laporan SET tor = ?, updated_at = ?' . ($txt !== '' ? ', pendahuluan = ?' : '') . ' WHERE id = ?', $txt !== '' ? [$file, now_str(), $txt, $r['id']] : [$file, now_str(), $r['id']]);
+                q('UPDATE bl_laporan SET tor = ?, updated_at = ? WHERE id = ?', [$file, now_str(), $r['id']]);
+                if ($txt !== '') {
+                    // isi TOR masuk ke sub-bab pertama bab A (Latar Belakang), atau ke bab A bila sub-bab sudah dihapus
+                    $S = bl_lap_struktur(bl_lap_by_id((int)$r['id']), $k);
+                    if (isset($S['bab'][0]['sub'][0])) $S['bab'][0]['sub'][0]['html'] = bl_rt_dari_teks($txt);
+                    else $S['bab'][0]['html'] = bl_rt_dari_teks($txt);
+                    bl_lap_simpan($r, $S);
+                }
                 audit('bl_lap_tor', ['keg' => $k['id'], 'found' => $txt !== '']);
                 return ['found' => $txt !== '', 'lap' => bl_lap_out($u, bl_lap_by_id((int)$r['id']), $k)];
             } elseif ($a === 'bl_lap_terbit') {

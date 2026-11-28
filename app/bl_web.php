@@ -232,16 +232,28 @@ function bl_page_berkas(): void
                 $L = bl_lap_cetak($r, $k);
                 $safe = trim(preg_replace('/[^A-Za-z0-9 _-]/', '', $k['judul'])) ?: 'kegiatan';
                 $docx = ($_GET['f'] ?? '') === 'docx';
-                $bin = $docx ? bl_lap_docx($L) : bl_lap_pdf($L);
+                // berkas disusun ke berkas sementara lalu dialirkan (laporan berlampiran bisa besar)
+                @set_time_limit(180);
+                $tmp = tempnam(sys_get_temp_dir(), 'lap');
+                if ($docx) bl_lap_docx($L, $tmp);
+                else { $fh = fopen($tmp, 'wb'); bl_lap_pdf($L, $fh); fclose($fh); }
                 audit('bl_lap_unduh', ['keg' => $k['id'], 'lap' => (int)$r['id'], 'f' => $docx ? 'docx' : 'pdf', 'draf' => !empty($L['draf'])]);
                 header('Content-Type: ' . ($docx ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf'));
-                header('Content-Length: ' . strlen($bin));
+                header('Content-Length: ' . filesize($tmp));
                 header('Cache-Control: private, no-store');
                 header('X-Content-Type-Options: nosniff');
                 header('Content-Disposition: attachment; filename="Laporan Kegiatan - ' . $safe . ($docx ? '.docx' : '.pdf') . '"');
-                echo $bin;
+                readfile($tmp);
+                @unlink($tmp);
                 return;
             }
+        } elseif ($j === 'lapimg') {
+            // gambar laporan (foto sampul, halaman lampiran) untuk layar penyunting
+            $lapId = (int)($_GET['lap'] ?? 0);
+            $r = $lapId ? bl_lap_by_id($lapId) : null;
+            $k = $r ? bl_keg((int)$r['keg_id']) : null;
+            $f = basename((string)($_GET['f'] ?? ''));
+            if ($k && $r && bl_lap_hak($u, $r, $k)['lihat'] && preg_match('/^l' . (int)$r['id'] . '_[0-9a-f_]+\.jpg$/', $f)) { $path = bl_lap_path($f); $type = 'image/jpeg'; $name = $f; }
         } elseif ($j === 'profil') {
             $f = (string)qval('SELECT foto FROM bl_profil WHERE user_id = ?', [$id]);
             if ($f !== '') { $path = data_dir('profil') . '/' . basename($f); $type = 'image/jpeg'; $name = 'profil.jpg'; }

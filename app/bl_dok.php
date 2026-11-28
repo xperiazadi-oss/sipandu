@@ -85,38 +85,43 @@ function bl_lap_hak(array $u, array $r, array $k): array
     ];
 }
 
-/* ---------- isi untuk VeriDoc: diringkas menurut aturan jenis Laporan Kegiatan ---------- */
-function bl_paragraf_pertama(string $s): string
+/* ---------- isi untuk VeriDoc: identitas sampul, paragraf pertama tiap bab/sub-bab, semua tabel lengkap, daftar judul lampiran ---------- */
+function bl_dok_ringkas(string $html): array
 {
-    foreach (preg_split('/\n\s*\n|\n/', trim($s)) as $p) if (trim($p) !== '') return trim($p);
-    return '';
+    $out = []; $first = false;
+    foreach (bl_rt_marks(bl_rt_parse($html)) as $b) {
+        if ($b['t'] === 'tbl') {
+            $rows = array_map(fn($row) => array_map(fn($c) => bl_rt_teks($c['r']), $row), $b['rows']);
+            $head = !array_filter($b['rows'][0], fn($c) => !$c['h']);
+            $out[] = ['t' => 'tabel', 'kepala' => $head ? array_shift($rows) : null, 'baris' => $rows];
+            continue;
+        }
+        if ($first) continue;
+        $txt = bl_rt_teks($b['r']);
+        if ($txt === '') continue;
+        $out[] = ['t' => 'p', 'v' => ($b['t'] === 'li' ? $b['m'] . ' ' : '') . $txt];
+        $first = true;
+    }
+    return $out;
 }
 function bl_dok_isi(array $L): array
 {
-    $b = [['t' => 'kv', 'rows' => array_values(array_filter($L['ident'], fn($r) => $r[0] !== t('dok.nomor')))]];
-    $teks = function (string $label, string $s, bool $ringkas) use (&$b) {
-        $b[] = ['t' => 'judul', 'v' => $label];
-        if ($ringkas) { $b[] = ['t' => 'p', 'v' => bl_paragraf_pertama($s) ?: t('lap.belum_diisi')]; return; }
-        $lines = array_values(array_filter(array_map('trim', explode("\n", $s)), fn($x) => $x !== ''));
-        foreach ($lines ?: [t('lap.belum_diisi')] as $l) $b[] = ['t' => 'p', 'v' => $l];
-    };
-    $teks(t('lap.sec_a'), $L['f']['pendahuluan'], true);
-    $teks(t('lap.sec_b'), $L['f']['mekanisme'], true);
-    $h = $L['hasil'];
-    $b[] = ['t' => 'judul', 'v' => t('lap.sec_c')];
-    $b[] = ['t' => 'p', 'v' => $h['pembuka']];
-    $b[] = ['t' => 'p', 'v' => '1. ' . $h['p1']];
-    $b[] = ['t' => 'p', 'v' => t('lap.menurut_instansi')]; $b[] = ['t' => 'daftar', 'v' => $h['inst']];
-    $b[] = ['t' => 'p', 'v' => t('lap.menurut_profesi')]; $b[] = ['t' => 'daftar', 'v' => $h['prof']];
-    $b[] = ['t' => 'p', 'v' => '2. ' . $h['p2']];
-    $b[] = ['t' => 'tabel', 'kepala' => [t('lap.t_komponen'), t('lap.t_n'), t('lap.t_rata'), t('lap.t_min'), t('lap.t_max')], 'baris' => array_map(fn($r) => array_map('strval', $r), $h['stat'])];
-    $b[] = ['t' => 'p', 'v' => $h['p2b']];
-    $b[] = ['t' => 'tabel', 'kepala' => [t('lap.t_no'), t('lap.t_nama'), t('lap.t_instansi'), t('lap.t_pre'), t('lap.t_post'), t('lap.t_progres'), t('lap.t_praktik'), t('lap.t_sikap'), t('lap.t_skor'), t('lap.t_kategori')], 'baris' => $h['detail']];
-    $b[] = ['t' => 'p', 'v' => '3. ' . $h['p3']];
-    $b[] = ['t' => 'p', 'v' => $h['kat_ket']];
-    $teks(t('lap.sec_d'), $L['f']['kendala'], false);
-    $teks(t('lap.sec_e'), $L['f']['kesimpulan'], false);
-    $teks(t('lap.sec_f'), $L['f']['rekomendasi'], false);
+    $s = $L['sampul'];
+    $b = [['t' => 'kv', 'rows' => [[t('lap.judul_laporan'), trim($s['judulLaporan']) ?: '–'], [t('lap.judul_kegiatan'), trim($s['judulKegiatan']) ?: '–'], [t('lap.disusun_oleh'), implode(' ', bl_lap_penyusun_baris($s)) ?: '–']]]];
+    foreach ($L['bab'] as $bab) {
+        $b[] = ['t' => 'judul', 'v' => $bab['judul']];
+        $r = bl_dok_ringkas($bab['html']);
+        if (!$r && !$bab['sub']) $r = [['t' => 'p', 'v' => t('lap.belum_diisi')]];
+        array_push($b, ...$r);
+        foreach ($bab['sub'] as $j => $sub) {
+            $b[] = ['t' => 'judul', 'v' => ($j + 1) . '. ' . $sub['judul']];
+            array_push($b, ...(bl_dok_ringkas($sub['html']) ?: [['t' => 'p', 'v' => t('lap.belum_diisi')]]));
+        }
+    }
+    if ($L['lampiran']) {
+        $b[] = ['t' => 'judul', 'v' => mb_strtoupper(t('lap.lampiran'))];
+        foreach ($L['lampiran'] as $j => $l) $b[] = ['t' => 'p', 'v' => mb_strtoupper(t('lap.lampiran')) . ' ' . bl_lap_romawi($j + 1) . '. ' . $l['judul']];
+    }
     $t = $L['ttd'];
     $b[] = ['t' => 'kv', 'rows' => [[t('lap.ttd_fasil'), $t['fasil']], [t('lap.ttd_pembina'), $t['pembina']], ['', trim($t['tempat'] . ', ' . $t['tanggal'], ', ')]]];
     return $b;
@@ -181,7 +186,6 @@ function bl_lap_sahkan(array $u, array $r, array $k): array
         $jab = trim((string)(q1('SELECT jabatan FROM bl_profil WHERE user_id = ?', [$u['id']])['jabatan'] ?? ''));
         $dokInfo = ['nomor' => $nomor, 'kode' => $kode, 'akses' => $akses, 'sifat' => $jenis['sifat'], 'kendali' => (string)$r['kendali']];
         $L['dok'] = $dokInfo;
-        array_unshift($L['ident'], [t('dok.nomor'), $nomor]);
         $id = sp_insert('bl_dok', ['lap_id' => $r['id'], 'keg_id' => $k['id'], 'jenis' => BL_JENIS_LAPORAN, 'revisi' => $lama ? (int)$lama['revisi'] + 1 : 0,
             'nomor' => $nomor, 'kode' => $kode, 'akses' => $akses, 'sifat' => $jenis['sifat'], 'kendali' => (string)$r['kendali'],
             'judul' => $jenis['nama'] . ' ' . $k['judul'], 'penerbit' => $jenis['penerbit'], 'pengesah_id' => $u['id'], 'pengesah_nama' => $u['nama'], 'pengesah_jabatan' => $jab !== '' ? $jab : t('lap.ttd_pembina'),

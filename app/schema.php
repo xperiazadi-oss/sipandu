@@ -85,7 +85,7 @@ function sp_added_columns(string $driver): array
         'alat' => ['tipe' => 'VARCHAR(150) NULL', 'no_seri' => 'VARCHAR(80) NULL', 'prinsip' => 'VARCHAR(150) NULL', 'tahun' => 'VARCHAR(4) NULL', 'kondisi' => 'VARCHAR(12) NULL', 'kal_terakhir' => 'VARCHAR(10) NULL', 'kal_berikut' => 'VARCHAR(10) NULL', 'created_at' => 'VARCHAR(19) NULL'],
         'sheets' => ['reagen_bhp_id' => 'INT NULL'],
         'users' => ['personel_id' => 'INT NULL'],
-        'bl_laporan' => ['status' => "VARCHAR(12) NOT NULL DEFAULT 'draf'", 'kendali' => 'VARCHAR(12) NULL', 'berlaku_mode' => 'VARCHAR(8) NULL', 'berlaku_sampai' => 'VARCHAR(10) NULL', 'catatan_kembali' => "$txt NULL", 'ganti_dok_id' => 'INT NULL', 'diajukan_at' => 'VARCHAR(19) NULL'],
+        'bl_laporan' => ['status' => "VARCHAR(12) NOT NULL DEFAULT 'draf'", 'kendali' => 'VARCHAR(12) NULL', 'berlaku_mode' => 'VARCHAR(8) NULL', 'berlaku_sampai' => 'VARCHAR(10) NULL', 'catatan_kembali' => "$txt NULL", 'ganti_dok_id' => 'INT NULL', 'diajukan_at' => 'VARCHAR(19) NULL', 'sampul' => "$txt NULL", 'bab' => "$txt NULL", 'lampiran' => "$txt NULL"],
         'personel' => ['pin_hash' => 'VARCHAR(255) NULL', 'pin_at' => 'VARCHAR(19) NULL', 'pin_gagal' => 'INT NOT NULL DEFAULT 0', 'pin_kunci' => 'INT NULL'],
     ];
 }
